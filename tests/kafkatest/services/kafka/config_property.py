@@ -43,7 +43,7 @@ INTER_BROKER_PROTOCOL_VERSION = "inter.broker.protocol.version"
 MESSAGE_FORMAT_VERSION = "log.message.format.version"
 MESSAGE_TIMESTAMP_TYPE = "message.timestamp.type"
 THROTTLING_REPLICATION_RATE_LIMIT = "replication.quota.throttled.rate"
-
+ENABLE_UNCLEAN_LEADER_ELECTION = "unclean.leader.election.enable"
 """
 From KafkaConfig.scala
 

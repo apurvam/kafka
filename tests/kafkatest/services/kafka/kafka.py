@@ -116,7 +116,10 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
 
         for node in self.nodes:
             node.version = version
-            node.config = KafkaConfig(**{config_property.BROKER_ID: self.idx(node)})
+            node_config = {}
+            node_config[config_property.ENABLE_UNCLEAN_LEADER_ELECTION] = 'false'
+            node_config[config_property.BROKER_ID] = self.idx(node)
+            node.config = KafkaConfig(**node_config)
 
     @property
     def security_config(self):
