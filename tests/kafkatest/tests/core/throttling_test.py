@@ -99,30 +99,30 @@ class ThrottlingTest(ProduceConsumeValidateTest):
 
         self.kafka.execute_reassign_partitions(partition_info,
                                                throttle=throttle)
-        # start = time.time()
+        start = time.time()
         if bounce_brokers:
             # bounce a few brokers at the same time
             self.clean_bounce_some_brokers()
 
         # Wait until finished or timeout
-        # size_per_broker = self.partition_size
-        # self.logger.debug("Amount of data transfer per broker: %fb",
-                          # size_per_broker)
-        # estimated_throttled_time = math.ceil(float(size_per_broker) /
-                                             # self.throttle)
-        # self.logger.debug("Waiting %ds for the reassignment to complete",
-                          # estimated_throttled_time * 2)
-        # wait_until(lambda: self.kafka.verify_reassign_partitions(partition_info),
-                   # timeout_sec=estimated_throttled_time * 2, backoff_sec=.5)
-        # stop = time.time()
-        # time_taken = stop - start
-        # self.logger.debug("Transfer took %d second. Estimated time : %ds",
-                          # time_taken,
-                          # estimated_throttled_time)
-        # assert time_taken >= estimated_throttled_time, \
-            # ("Expected rebalance to take at least %ds, but it took %ds" % (
-                # estimated_throttled_time,
-                # time_taken))
+        size_per_broker = self.partition_size
+        self.logger.debug("Amount of data transfer per broker: %fb",
+                          size_per_broker)
+        estimated_throttled_time = math.ceil(float(size_per_broker) /
+                                             self.throttle)
+        self.logger.debug("Waiting %ds for the reassignment to complete",
+                          estimated_throttled_time * 2)
+        wait_until(lambda: self.kafka.verify_reassign_partitions(partition_info),
+                   timeout_sec=estimated_throttled_time * 2, backoff_sec=.5)
+        stop = time.time()
+        time_taken = stop - start
+        self.logger.debug("Transfer took %d second. Estimated time : %ds",
+                          time_taken,
+                          estimated_throttled_time)
+        assert time_taken >= estimated_throttled_time, \
+            ("Expected rebalance to take at least %ds, but it took %ds" % (
+                estimated_throttled_time,
+                time_taken))
 
     @parametrize(bounce_brokers=True, new_consumer=True)
     # @parametrize(bounce_brokers=False, new_consumer=False)
