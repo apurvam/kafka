@@ -69,13 +69,13 @@ class ThrottlingTest(ProduceConsumeValidateTest):
                                   })
         self.producer_throughput = 1000
         self.timeout_sec = 400
-        self.num_records = 5000
+        self.num_records = 3500
         self.record_size = 4096 * 100  # 400 KB
         # 1 MB per partition on average.
         self.partition_size = (self.num_records * self.record_size) / self.num_partitions
         self.num_producers = 2
         self.num_consumers = 1
-        self.throttle = 3 * 1024 * 1024  # 2 MB/s
+        self.throttle = 4 * 1024 * 1024  # 4 MB/s
 
     def setUp(self):
         self.zk.start()
@@ -96,9 +96,14 @@ class ThrottlingTest(ProduceConsumeValidateTest):
         self.logger.debug("Partitions before reassignment:" +
                           str(partition_info))
 
+
+        num_moves = 0
         for i in range(0, self.num_partitions):
-            partition_info["partitions"][i]["partition"] =\
-                (i+1) % self.num_partitions
+            old_replicas = set(partition_info["partitions"][i]["replicas"])
+            new_part = (i+1) % self.num_partitions
+            new_replicas = set(partition_info["partitions"][new_part]["replicas"])
+            num_moves = max(len(new_replicas - old_replicas), num_moves)
+            partition_info["partitions"][i]["partition"] = new_part
         self.logger.debug("Jumbled partitions: " + str(partition_info))
         # send reassign partitions command
 
@@ -110,8 +115,8 @@ class ThrottlingTest(ProduceConsumeValidateTest):
             self.clean_bounce_some_brokers()
 
         # Wait until finished or timeout
-        size_per_broker = self.partition_size
-        self.logger.debug("Amount of data transfer per broker: %fb",
+        size_per_broker = num_moves * self.partition_size
+        self.logger.debug("Max amount of data transfer per broker: %fb",
                           size_per_broker)
         estimated_throttled_time = math.ceil(float(size_per_broker) /
                                              self.throttle)
