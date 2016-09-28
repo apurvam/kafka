@@ -69,7 +69,7 @@ class ThrottlingTest(ProduceConsumeValidateTest):
                                   })
         self.producer_throughput = 1000
         self.timeout_sec = 400
-        self.num_records = 3500
+        self.num_records = 2000
         self.record_size = 4096 * 100  # 400 KB
         # 1 MB per partition on average.
         self.partition_size = (self.num_records * self.record_size) / self.num_partitions
@@ -134,8 +134,8 @@ class ThrottlingTest(ProduceConsumeValidateTest):
                 estimated_throttled_time,
                 time_taken))
 
-    @parametrize(bounce_brokers=False, new_consumer=True)
-    @parametrize(bounce_brokers=False, new_consumer=False)
+    @parametrize(bounce_brokers=False)
+    @parametrize(bounce_brokers=True)
     def test_throttled_reassignment(self, bounce_brokers, new_consumer):
         security_protocol = 'PLAINTEXT'
         self.kafka.security_protocol = security_protocol
@@ -160,7 +160,7 @@ class ThrottlingTest(ProduceConsumeValidateTest):
                                         self.num_consumers,
                                         self.kafka,
                                         self.topic,
-                                        new_consumer=new_consumer,
+                                        new_consumer=True,
                                         consumer_timeout_ms=60000,
                                         message_validator=is_int,
                                         from_beginning=False)
