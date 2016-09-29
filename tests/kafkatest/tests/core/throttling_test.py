@@ -140,7 +140,7 @@ class ThrottlingTest(ProduceConsumeValidateTest):
     @parametrize(bounce_brokers=False)
     @parametrize(bounce_brokers=True)
     def test_throttled_reassignment(self, bounce_brokers):
-        security_protocol = 'PLAINTEXT'
+        security_protocol = 'SSL'
         self.kafka.security_protocol = security_protocol
         self.kafka.interbroker_security_protocol = security_protocol
 
