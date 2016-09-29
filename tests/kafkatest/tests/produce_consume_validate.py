@@ -111,8 +111,7 @@ class ProduceConsumeValidateTest(Test):
         if len(missing_list) < 20:
             msg += str(missing_list) + ". "
         else:
-            for i in range(20):
-                msg += str(missing_list[i]) + ", "
+            msg += ", ".join(str(m) for m in missing_list[:20])
             msg += "...plus %s more. Total Acked: %s, Total Consumed: %s. " \
                    % (len(missing_list) - 20, len(set(acked)), len(set(consumed)))
         return msg
