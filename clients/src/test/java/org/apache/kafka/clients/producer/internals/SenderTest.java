@@ -27,6 +27,9 @@ import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.LogEntry;
+import org.apache.kafka.common.requests.AbstractRequest;
+import org.apache.kafka.common.requests.InitPIDResponse;
+import org.apache.kafka.common.requests.InitPidRequest;
 import org.apache.kafka.common.requests.ProduceResponse;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.test.TestUtils;
@@ -68,23 +71,7 @@ public class SenderTest {
 
     @Before
     public void setup() {
-        Map<String, String> metricTags = new LinkedHashMap<>();
-        metricTags.put("client-id", CLIENT_ID);
-        MetricConfig metricConfig = new MetricConfig().tags(metricTags);
-        metrics = new Metrics(metricConfig, time);
-        accumulator = new RecordAccumulator(batchSize, 1024 * 1024, CompressionType.NONE, 0L, 0L, metrics, time);
-        sender = new Sender(client,
-                            metadata,
-                            this.accumulator,
-                            true,
-                            MAX_REQUEST_SIZE,
-                            ACKS_ALL,
-                            MAX_RETRIES,
-                            metrics,
-                            time,
-                            REQUEST_TIMEOUT);
-
-        metadata.update(cluster, time.milliseconds());
+        setupWithTransactionState(null);
     }
 
     @After
@@ -141,7 +128,9 @@ public class SenderTest {
                                        maxRetries,
                                        m,
                                        time,
-                                       REQUEST_TIMEOUT);
+                                       REQUEST_TIMEOUT,
+                                       null
+            );
             // do a successful retry
             Future<RecordMetadata> future = accumulator.append(tp, 0L, "key".getBytes(), "value".getBytes(), null, MAX_BLOCK_TIMEOUT).future;
             sender.run(time.milliseconds()); // connect
@@ -185,15 +174,17 @@ public class SenderTest {
         Metrics m = new Metrics();
         try {
             Sender sender = new Sender(client,
-                metadata,
-                this.accumulator,
-                true,
-                MAX_REQUEST_SIZE,
-                ACKS_ALL,
-                maxRetries,
-                m,
-                time,
-                REQUEST_TIMEOUT);
+                    metadata,
+                    this.accumulator,
+                    true,
+                    MAX_REQUEST_SIZE,
+                    ACKS_ALL,
+                    maxRetries,
+                    m,
+                    time,
+                    REQUEST_TIMEOUT,
+                    null
+            );
 
             // Create a two broker cluster, with partition 0 on broker 0 and partition 1 on broker 1
             Cluster cluster1 = TestUtils.clusterWith(2, "test", 2);
@@ -261,6 +252,23 @@ public class SenderTest {
         assertTrue("Request should be completed", future.isDone());
     }
 
+    @Test
+    public void testInitPidRequest() throws Exception {
+        final Long producerId = 343434L;
+        TransactionState transactionState = new TransactionState(true);
+        setupWithTransactionState(transactionState);
+        client.setNode(new Node(1, "localhost", 33343));
+        client.prepareResponse(new MockClient.RequestMatcher() {
+            @Override
+            public boolean matches(AbstractRequest body) {
+                return body instanceof InitPidRequest;
+            }
+        }, new InitPIDResponse(Errors.NONE, producerId, (short) 0));
+        sender.run(time.milliseconds());
+        assertTrue(transactionState.hasPid());
+        assertEquals(transactionState.pid(), producerId);
+    }
+
     private void completedWithError(Future<RecordMetadata> future, Errors error) throws Exception {
         assertTrue("Request should be completed", future.isDone());
         try {
@@ -275,6 +283,27 @@ public class SenderTest {
         ProduceResponse.PartitionResponse resp = new ProduceResponse.PartitionResponse(error, offset, LogEntry.NO_TIMESTAMP);
         Map<TopicPartition, ProduceResponse.PartitionResponse> partResp = Collections.singletonMap(tp, resp);
         return new ProduceResponse(partResp, throttleTimeMs);
+    }
+
+    private void setupWithTransactionState(TransactionState transactionState) {
+        Map<String, String> metricTags = new LinkedHashMap<>();
+        metricTags.put("client-id", CLIENT_ID);
+        MetricConfig metricConfig = new MetricConfig().tags(metricTags);
+        this.metrics = new Metrics(metricConfig, time);
+        this.accumulator = new RecordAccumulator(batchSize, 1024 * 1024, CompressionType.NONE, 0L, 0L, metrics, time, transactionState);
+        this.sender = new Sender(this.client,
+                this.metadata,
+                this.accumulator,
+                true,
+                MAX_REQUEST_SIZE,
+                ACKS_ALL,
+                MAX_RETRIES,
+                this.metrics,
+                this.time,
+                REQUEST_TIMEOUT, transactionState);
+
+        this.metadata.update(this.cluster, time.milliseconds());
+
     }
 
 }

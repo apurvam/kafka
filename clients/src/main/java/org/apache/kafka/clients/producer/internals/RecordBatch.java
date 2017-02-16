@@ -43,6 +43,7 @@ public final class RecordBatch {
 
     private final List<Thunk> thunks = new ArrayList<>();
     private final MemoryRecordsBuilder recordsBuilder;
+    private boolean isClosed;
 
     volatile int attempts;
     int recordCount;
@@ -62,6 +63,8 @@ public final class RecordBatch {
         this.lastAppendTime = createdMs;
         this.produceFuture = new ProduceRequestResult(topicPartition);
         this.completed = new AtomicBoolean();
+        this.retry = false;
+        this.isClosed = false;
     }
 
     /**
@@ -149,7 +152,6 @@ public final class RecordBatch {
      * {@link #expirationDone()} must be invoked to complete the produce future and invoke callbacks.
      */
     public boolean maybeExpire(int requestTimeoutMs, long retryBackoffMs, long now, long lingerMs, boolean isFull) {
-
         if (!this.inRetry() && isFull && requestTimeoutMs < (now - this.lastAppendTime))
             expiryErrorMessage = (now - this.lastAppendTime) + " ms has passed since last append";
         else if (!this.inRetry() && requestTimeoutMs < (now - (this.createdMs + lingerMs)))
@@ -159,7 +161,7 @@ public final class RecordBatch {
 
         boolean expired = expiryErrorMessage != null;
         if (expired)
-            close();
+            close(null);
         return expired;
     }
 
@@ -204,9 +206,19 @@ public final class RecordBatch {
     public boolean isFull() {
         return recordsBuilder.isFull();
     }
-
-    public void close() {
-        recordsBuilder.close();
+    /**
+     * Writes the final metadata in the batch and updates transaction state with the new sequence number for the
+     * TopicPartition
+     * @param transactionState the global transaction state which keeps track of sequence numbers for each TopicPartition.
+     */
+    public synchronized void close(TransactionState transactionState) {
+        if (!isClosed) {
+            recordsBuilder.close();
+            if (transactionState != null) {
+                transactionState.incrementSequenceNumber(topicPartition, this.recordCount);
+            }
+            isClosed = true;
+        }
     }
 
     public ByteBuffer buffer() {
