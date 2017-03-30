@@ -25,17 +25,18 @@ import kafka.utils.{Logging, nonthreadsafe}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{DuplicateSequenceNumberException, OutOfOrderSequenceException, ProducerFencedException}
 import org.apache.kafka.common.protocol.types._
-import org.apache.kafka.common.record.RecordBatch
-import org.apache.kafka.common.utils.{ByteUtils, Crc32C}
+import org.apache.kafka.common.record.{ControlRecordType, RecordBatch, Records}
+import org.apache.kafka.common.utils.{ByteUtils, Crc32}
 
 import scala.collection.{immutable, mutable}
 
 private[log] object ProducerIdEntry {
-  val Empty = ProducerIdEntry(RecordBatch.NO_PRODUCER_EPOCH, RecordBatch.NO_SEQUENCE,
-    -1, 0, RecordBatch.NO_TIMESTAMP)
+  val Empty = ProducerIdEntry(RecordBatch.NO_PRODUCER_ID, RecordBatch.NO_PRODUCER_EPOCH, RecordBatch.NO_SEQUENCE,
+    -1, 0, RecordBatch.NO_TIMESTAMP, -1)
 }
 
-private[log] case class ProducerIdEntry(epoch: Short, lastSeq: Int, lastOffset: Long, numRecords: Int, timestamp: Long) {
+private[log] case class ProducerIdEntry(pid: Long, epoch: Short, lastSeq: Int, lastOffset: Long, numRecords: Int,
+                                        timestamp: Long, currentTxnFirstOffset: Long) {
   def firstSeq: Int = lastSeq - numRecords + 1
   def firstOffset: Long = lastOffset - numRecords + 1
 
@@ -54,6 +55,10 @@ private[log] class ProducerAppendInfo(val pid: Long, initialEntry: ProducerIdEnt
   private var lastSeq = initialEntry.lastSeq
   private var lastOffset = initialEntry.lastOffset
   private var maxTimestamp = initialEntry.timestamp
+  private var currentTxnFirstOffset = initialEntry.currentTxnFirstOffset
+
+  def this(pid: Long, initialEntry: Option[ProducerIdEntry]) =
+    this(pid, initialEntry.getOrElse(ProducerIdEntry.Empty))
 
   private def validateAppend(epoch: Short, firstSeq: Int, lastSeq: Int) = {
     if (this.epoch > epoch) {
@@ -76,26 +81,49 @@ private[log] class ProducerAppendInfo(val pid: Long, initialEntry: ProducerIdEnt
     this.maxTimestamp = lastTimestamp
   }
 
-  private def append(epoch: Short, firstSeq: Int, lastSeq: Int, lastTimestamp: Long, lastOffset: Long) {
+  def append(epoch: Short, firstSeq: Int, lastSeq: Int, lastTimestamp: Long, lastOffset: Long, isTransactional: Boolean) {
     validateAppend(epoch, firstSeq, lastSeq)
     this.epoch = epoch
     this.firstSeq = firstSeq
     this.lastSeq = lastSeq
     this.maxTimestamp = lastTimestamp
     this.lastOffset = lastOffset
+
+    if (isTransactional && currentTxnFirstOffset < 0) {
+      val firstOffset = lastOffset - (lastSeq - firstSeq)
+      currentTxnFirstOffset = firstOffset
+    }
   }
 
-  def append(batch: RecordBatch): Unit =
-    append(batch.producerEpoch, batch.baseSequence, batch.lastSequence, batch.maxTimestamp, batch.lastOffset)
+  def append(batch: RecordBatch): Unit = {
+    if (batch.baseSequence == RecordBatch.CONTROL_SEQUENCE) {
+      val controlRecord = batch.iterator.next()
+      val controlRecordType = ControlRecordType.parse(controlRecord.key())
+      appendControl(batch.producerEpoch, batch.maxTimestamp, controlRecordType)
+    } else {
+      append(batch.producerEpoch, batch.baseSequence, batch.lastSequence, batch.maxTimestamp, batch.lastOffset,
+        batch.isTransactional)
+    }
+  }
 
-  def append(entry: ProducerIdEntry): Unit =
-    append(entry.epoch, entry.firstSeq, entry.lastSeq, entry.timestamp, entry.lastOffset)
+  def appendControl(epoch: Short, timestamp: Long, controlType: ControlRecordType): Unit = {
+    if (this.epoch > epoch)
+      throw new ProducerFencedException(s"Invalid epoch (zombie writer): $epoch (request epoch), ${this.epoch}")
+
+    controlType match {
+      case ControlRecordType.ABORT | ControlRecordType.COMMIT =>
+        currentTxnFirstOffset = -1
+        lastTimestamp = timestamp
+      case _ =>
+    }
+  }
 
   def lastEntry: ProducerIdEntry =
-    ProducerIdEntry(epoch, lastSeq, lastOffset, lastSeq - firstSeq + 1, maxTimestamp)
+    ProducerIdEntry(pid, epoch, lastSeq, lastOffset, lastSeq - firstSeq + 1, maxTimestamp, currentTxnFirstOffset)
 }
 
 private[log] class CorruptSnapshotException(msg: String) extends KafkaException(msg)
+private[log] case class PendingTxn(pid: Long, offset: Long)
 
 object ProducerIdMapping {
   private val DirnamePrefix = "pid-mapping"
@@ -112,6 +140,7 @@ object ProducerIdMapping {
   private val NumRecordsField = "num_records"
   private val TimestampField = "timestamp"
   private val PidEntriesField = "pid_entries"
+  private val CurrentTxnFirstOffsetField = "current_txn_first_offset"
 
   private val VersionOffset = 0
   private val CrcOffset = VersionOffset + 2
@@ -125,7 +154,8 @@ object ProducerIdMapping {
     new Field(LastSequenceField, Type.INT32, "Last written sequence of the producer"),
     new Field(LastOffsetField, Type.INT64, "Last written offset of the producer"),
     new Field(NumRecordsField, Type.INT32, "The number of records written in the last log entry"),
-    new Field(TimestampField, Type.INT64, "Max timestamp from the last written entry"))
+    new Field(TimestampField, Type.INT64, "Max timestamp from the last written entry"),
+    new Field(CurrentTxnFirstOffsetField, Type.INT64, "The first offset of the on-going transaction (-1 if there is none)"))
   val PidSnapshotMapSchema = new Schema(
     new Field(VersionField, Type.INT16, "Version of the snapshot file"),
     new Field(CrcField, Type.UNSIGNED_INT32, "CRC of the snapshot data"),
@@ -153,7 +183,8 @@ object ProducerIdMapping {
       val offset = pidEntryStruct.getLong(LastOffsetField)
       val timestamp = pidEntryStruct.getLong(TimestampField)
       val numRecords = pidEntryStruct.getInt(NumRecordsField)
-      val newEntry = ProducerIdEntry(epoch, seq, offset, numRecords, timestamp)
+      val currentTxnFirstOffset = pidEntryStruct.getLong(CurrentTxnFirstOffsetField)
+      val newEntry = ProducerIdEntry(epoch, seq, offset, numRecords, timestamp, currentTxnFirstOffset)
       if (checkNotExpired(newEntry))
         pidMap.put(pid, newEntry)
     }
@@ -172,6 +203,7 @@ object ProducerIdMapping {
           .set(LastOffsetField, entry.lastOffset)
           .set(NumRecordsField, entry.numRecords)
           .set(TimestampField, entry.timestamp)
+          .set(CurrentTxnFirstOffsetField, -1L)
         pidEntryStruct
     }.toArray
     struct.set(PidEntriesField, entriesArray)
@@ -227,6 +259,10 @@ class ProducerIdMapping(val config: LogConfig,
   private var lastMapOffset = 0L
   private var lastSnapOffset = 0L
 
+  @volatile private var earliestPendingTxn: Option[ProducerIdEntry] = None
+
+  def firstUnstableOffset: Option[Long] = earliestPendingTxn.map(_.firstOffset)
+
   /**
    * Returns the last offset of this map
    */
@@ -267,19 +303,16 @@ class ProducerIdMapping(val config: LogConfig,
     }
   }
 
-  def isEntryValid(currentTimeMs: Long, producerIdEntry: ProducerIdEntry) : Boolean = {
-    currentTimeMs - producerIdEntry.timestamp < maxPidExpirationMs
-  }
 
-  def checkForExpiredPids(currentTimeMs: Long) {
-    pidMap.retain { case (pid, lastEntry) =>
-      isEntryValid(currentTimeMs, lastEntry)
-    }
-  }
+  def hasExpired(pidEntry: ProducerIdEntry, currentTimeMs: Long): Boolean =
+    pidEntry.currentTxnFirstOffset < 0 && currentTimeMs - pidEntry.timestamp >= maxPidExpirationMs
+
+  def checkForExpiredPids(currentTimeMs: Long): Unit =
+    pidMap.retain { case (_, lastEntry) => !hasExpired(lastEntry, currentTimeMs) }
 
   def truncateAndReload(logEndOffset: Long, currentTime: Long) {
     truncateSnapshotFiles(logEndOffset)
-    def checkNotExpired = (producerIdEntry: ProducerIdEntry) => { isEntryValid(currentTime, producerIdEntry) }
+    def checkNotExpired = (producerIdEntry: ProducerIdEntry) => { !hasExpired(currentTime, producerIdEntry) }
     loadFromSnapshot(logEndOffset, checkNotExpired)
   }
 
@@ -291,17 +324,16 @@ class ProducerIdMapping(val config: LogConfig,
       throw new IllegalArgumentException("Invalid PID passed to update")
     val entry = appendInfo.lastEntry
     pidMap.put(appendInfo.pid, entry)
-    lastMapOffset = entry.lastOffset + 1
-  }
+    lastMapOffset = entry.lastOffset
 
-  /**
-   * Load a previously stored PID entry into the cache. Ignore the entry if the timestamp is older
-   * than the current time minus the PID expiration time (i.e. if the PID has expired).
-   */
-  def load(pid: Long, entry: ProducerIdEntry, currentTimeMs: Long) {
-    if (pid != RecordBatch.NO_PRODUCER_ID && currentTimeMs - entry.timestamp < maxPidExpirationMs) {
-      pidMap.put(pid, entry)
-      lastMapOffset = entry.lastOffset + 1
+    earliestPendingTxn = earliestPendingTxn match {
+      case None =>
+        if (entry.currentTxnFirstOffset >= 0) Some(entry) else None
+      case Some(pendingTxnEntry) =>
+        if (pendingTxnEntry.pid == entry.pid && pendingTxnEntry.currentTxnFirstOffset != entry.currentTxnFirstOffset)
+          findEarliestPendingTxn()
+        else
+          Some(pendingTxnEntry)
     }
   }
 
@@ -391,4 +423,13 @@ class ProducerIdMapping(val config: LogConfig,
         file.delete()
     }
   }
+
+  private def findEarliestPendingTxn(): Option[ProducerIdEntry] = {
+    val entriesWithTxns = pidMap.values.filter(_.currentTxnFirstOffset >= 0)
+    if (entriesWithTxns.isEmpty)
+      None
+    else
+      Some(entriesWithTxns.minBy(_.currentTxnFirstOffset))
+  }
+
 }
