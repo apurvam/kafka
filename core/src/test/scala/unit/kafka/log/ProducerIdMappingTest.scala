@@ -23,6 +23,7 @@ import java.util.Properties
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{DuplicateSequenceNumberException, OutOfOrderSequenceException, ProducerFencedException}
+import org.apache.kafka.common.record.ControlRecordType
 import org.apache.kafka.common.utils.{MockTime, Utils}
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
@@ -54,35 +55,35 @@ class ProducerIdMappingTest extends JUnitSuite {
     val epoch = 0.toShort
 
     // First entry for id 0 added
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L, 0L)
+    append(idMapping, pid, 0, epoch, 0L, 0L)
 
     // Second entry for id 0 added
-    checkAndUpdate(idMapping, pid, 1, epoch, 0L, 1L)
+    append(idMapping, pid, 1, epoch, 0L, 1L)
 
     // Duplicate sequence number (matches previous sequence number)
     assertThrows[DuplicateSequenceNumberException] {
-      checkAndUpdate(idMapping, pid, 1, epoch, 0L, 1L)
+      append(idMapping, pid, 1, epoch, 0L, 1L)
     }
 
     // Invalid sequence number (greater than next expected sequence number)
     assertThrows[OutOfOrderSequenceException] {
-      checkAndUpdate(idMapping, pid, 5, epoch, 0L, 2L)
+      append(idMapping, pid, 5, epoch, 0L, 2L)
     }
 
     // Change epoch
-    checkAndUpdate(idMapping, pid, 0, (epoch + 1).toShort, 0L, 3L)
+    append(idMapping, pid, 0, (epoch + 1).toShort, 0L, 3L)
 
     // Incorrect epoch
     assertThrows[ProducerFencedException] {
-      checkAndUpdate(idMapping, pid, 0, epoch, 0L, 4L)
+      append(idMapping, pid, 0, epoch, 0L, 4L)
     }
   }
 
   @Test
   def testTakeSnapshot(): Unit = {
     val epoch = 0.toShort
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L, 0L)
-    checkAndUpdate(idMapping, pid, 1, epoch, 1L, 1L)
+    append(idMapping, pid, 0, epoch, 0L, 0L)
+    append(idMapping, pid, 1, epoch, 1L, 1L)
 
     // Take snapshot
     idMapping.maybeTakeSnapshot()
@@ -95,21 +96,22 @@ class ProducerIdMappingTest extends JUnitSuite {
   @Test
   def testRecoverFromSnapshot(): Unit = {
     val epoch = 0.toShort
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L, time.milliseconds)
-    checkAndUpdate(idMapping, pid, 1, epoch, 1L, time.milliseconds)
+    append(idMapping, pid, 0, epoch, 0L)
+    append(idMapping, pid, 1, epoch, 1L)
+
     idMapping.maybeTakeSnapshot()
     val recoveredMapping = new ProducerIdMapping(config, partition, idMappingDir, maxPidExpirationMs)
     recoveredMapping.truncateAndReload(0L, 3L, time.milliseconds)
 
     // entry added after recovery
-    checkAndUpdate(recoveredMapping, pid, 2, epoch, 2L, time.milliseconds)
+    append(recoveredMapping, pid, 2, epoch, 2L)
   }
 
   @Test(expected = classOf[OutOfOrderSequenceException])
   def testRemoveExpiredPidsOnReload(): Unit = {
     val epoch = 0.toShort
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L, 0)
-    checkAndUpdate(idMapping, pid, 1, epoch, 1L, 1)
+    append(idMapping, pid, 0, epoch, 0L, 0)
+    append(idMapping, pid, 1, epoch, 1L, 1)
 
     idMapping.maybeTakeSnapshot()
     val recoveredMapping = new ProducerIdMapping(config, partition, idMappingDir, maxPidExpirationMs)
@@ -117,26 +119,25 @@ class ProducerIdMappingTest extends JUnitSuite {
 
     // entry added after recovery. The pid should be expired now, and would not exist in the pid mapping. Hence
     // we should get an out of order sequence exception.
-    checkAndUpdate(recoveredMapping, pid, 2, epoch, 2L, 70001)
+    append(recoveredMapping, pid, 2, epoch, 2L, 70001)
   }
 
   @Test
   def testRemoveOldSnapshot(): Unit = {
     val epoch = 0.toShort
-
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L)
-    checkAndUpdate(idMapping, pid, 1, epoch, 1L)
+    append(idMapping, pid, 0, epoch, 0L)
+    append(idMapping, pid, 1, epoch, 1L)
     idMapping.maybeTakeSnapshot()
     assertEquals(1, idMappingDir.listFiles().length)
     assertEquals(Set(2), currentSnapshotOffsets)
 
-    checkAndUpdate(idMapping, pid, 2, epoch, 2L)
+    append(idMapping, pid, 2, epoch, 2L)
     idMapping.maybeTakeSnapshot()
     assertEquals(2, idMappingDir.listFiles().length)
     assertEquals(Set(2, 3), currentSnapshotOffsets)
 
     // we only retain two snapshot files, so the next snapshot should cause the oldest to be deleted
-    checkAndUpdate(idMapping, pid, 3, epoch, 3L)
+    append(idMapping, pid, 3, epoch, 3L)
     idMapping.maybeTakeSnapshot()
     assertEquals(2, idMappingDir.listFiles().length)
     assertEquals(Set(3, 4), currentSnapshotOffsets)
@@ -146,13 +147,13 @@ class ProducerIdMappingTest extends JUnitSuite {
   def testTruncate(): Unit = {
     val epoch = 0.toShort
 
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L)
-    checkAndUpdate(idMapping, pid, 1, epoch, 1L)
+    append(idMapping, pid, 0, epoch, 0L)
+    append(idMapping, pid, 1, epoch, 1L)
     idMapping.maybeTakeSnapshot()
     assertEquals(1, idMappingDir.listFiles().length)
     assertEquals(Set(2), currentSnapshotOffsets)
 
-    checkAndUpdate(idMapping, pid, 2, epoch, 2L)
+    append(idMapping, pid, 2, epoch, 2L)
     idMapping.maybeTakeSnapshot()
     assertEquals(2, idMappingDir.listFiles().length)
     assertEquals(Set(2, 3), currentSnapshotOffsets)
@@ -162,27 +163,60 @@ class ProducerIdMappingTest extends JUnitSuite {
     assertEquals(0, idMappingDir.listFiles().length)
     assertEquals(Set(), currentSnapshotOffsets)
 
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L)
+    append(idMapping, pid, 0, epoch, 0L)
     idMapping.maybeTakeSnapshot()
     assertEquals(1, idMappingDir.listFiles().length)
     assertEquals(Set(1), currentSnapshotOffsets)
   }
 
   @Test
-  def testExpirePids(): Unit = {
+  def testFirstUnstableOffsetAfterTruncation(): Unit = {
+    val epoch = 0.toShort
+    val sequence = 0
+
+    append(idMapping, pid, sequence, epoch, offset = 99, isTransactional = true)
+    assertEquals(Some(99), idMapping.firstUnstableOffset)
+    idMapping.maybeTakeSnapshot()
+
+    appendControl(idMapping, pid, epoch, ControlRecordType.COMMIT, offset = 105)
+    idMapping.ackTransactionsCompletedBefore(106)
+    assertEquals(None, idMapping.firstUnstableOffset)
+    idMapping.maybeTakeSnapshot()
+
+    append(idMapping, pid, sequence + 1, epoch, offset = 106)
+    idMapping.truncateAndReload(0L, 106, time.milliseconds())
+    assertEquals(None, idMapping.firstUnstableOffset)
+
+    idMapping.truncateAndReload(0L, 100L, time.milliseconds())
+    assertEquals(Some(99), idMapping.firstUnstableOffset)
+  }
+
+  @Test
+  def testFirstUnstableOffsetAfterEviction(): Unit = {
+    val epoch = 0.toShort
+    val sequence = 0
+    append(idMapping, pid, sequence, epoch, offset = 99, isTransactional = true)
+    assertEquals(Some(99), idMapping.firstUnstableOffset)
+    append(idMapping, 2L, 0, epoch, offset = 106)
+    idMapping.evictUnretainedPids(100)
+    assertEquals(None, idMapping.firstUnstableOffset)
+  }
+
+  @Test
+  def testEvictUnretainedPids(): Unit = {
     val epoch = 0.toShort
 
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L)
-    checkAndUpdate(idMapping, pid, 1, epoch, 1L)
+    append(idMapping, pid, 0, epoch, 0L)
+    append(idMapping, pid, 1, epoch, 1L)
     idMapping.maybeTakeSnapshot()
 
     val anotherPid = 2L
-    checkAndUpdate(idMapping, anotherPid, 0, epoch, 2L)
-    checkAndUpdate(idMapping, anotherPid, 1, epoch, 3L)
+    append(idMapping, anotherPid, 0, epoch, 2L)
+    append(idMapping, anotherPid, 1, epoch, 3L)
     idMapping.maybeTakeSnapshot()
     assertEquals(Set(2, 4), currentSnapshotOffsets)
 
-    idMapping.expirePids(2)
+    idMapping.evictUnretainedPids(2)
     assertEquals(Set(4), currentSnapshotOffsets)
     assertEquals(Set(anotherPid), idMapping.activePids.keySet)
     assertEquals(None, idMapping.lastEntry(pid))
@@ -191,12 +225,12 @@ class ProducerIdMappingTest extends JUnitSuite {
     assertTrue(maybeEntry.isDefined)
     assertEquals(3L, maybeEntry.get.lastOffset)
 
-    idMapping.expirePids(3)
+    idMapping.evictUnretainedPids(3)
     assertEquals(Set(anotherPid), idMapping.activePids.keySet)
     assertEquals(Set(4), currentSnapshotOffsets)
     assertEquals(4, idMapping.mapEndOffset)
 
-    idMapping.expirePids(5)
+    idMapping.evictUnretainedPids(5)
     assertEquals(Set(), idMapping.activePids.keySet)
     assertEquals(Set(), currentSnapshotOffsets)
     assertEquals(5, idMapping.mapEndOffset)
@@ -209,7 +243,7 @@ class ProducerIdMappingTest extends JUnitSuite {
   @Test
   def testSkipSnapshotIfOffsetUnchanged(): Unit = {
     val epoch = 0.toShort
-    checkAndUpdate(idMapping, pid, 0, epoch, 0L, 0L)
+    append(idMapping, pid, 0, epoch, 0L, 0L)
 
     idMapping.maybeTakeSnapshot()
     assertEquals(1, idMappingDir.listFiles().length)
@@ -225,16 +259,16 @@ class ProducerIdMappingTest extends JUnitSuite {
   def testStartOffset(): Unit = {
     val epoch = 0.toShort
     val pid2 = 2L
-    checkAndUpdate(idMapping, pid2, 0, epoch, 0L, 1L)
-    checkAndUpdate(idMapping, pid, 0, epoch, 1L, 2L)
-    checkAndUpdate(idMapping, pid, 1, epoch, 2L, 3L)
-    checkAndUpdate(idMapping, pid, 2, epoch, 3L, 4L)
+    append(idMapping, pid2, 0, epoch, 0L, 1L)
+    append(idMapping, pid, 0, epoch, 1L, 2L)
+    append(idMapping, pid, 1, epoch, 2L, 3L)
+    append(idMapping, pid, 2, epoch, 3L, 4L)
     idMapping.maybeTakeSnapshot()
 
     intercept[OutOfOrderSequenceException] {
       val recoveredMapping = new ProducerIdMapping(config, partition, idMappingDir, maxPidExpirationMs)
       recoveredMapping.truncateAndReload(0L, 1L, time.milliseconds)
-      checkAndUpdate(recoveredMapping, pid2, 1, epoch, 4L, 5L)
+      append(recoveredMapping, pid2, 1, epoch, 4L, 5L)
     }
   }
 
@@ -242,47 +276,86 @@ class ProducerIdMappingTest extends JUnitSuite {
   def testPidExpirationTimeout() {
     val epoch = 5.toShort
     val sequence = 37
-    checkAndUpdate(idMapping, pid, sequence, epoch, 1L)
+    append(idMapping, pid, sequence, epoch, 1L)
     time.sleep(maxPidExpirationMs + 1)
     idMapping.removeExpiredPids(time.milliseconds)
-    checkAndUpdate(idMapping, pid, sequence + 1, epoch, 1L)
+    append(idMapping, pid, sequence + 1, epoch, 1L)
   }
 
   @Test
-  def testLoadPid() {
+  def testFirstUnstableOffset() {
     val epoch = 5.toShort
-    val sequence = 37
-    val createTimeMs = time.milliseconds
-    idMapping.load(pid, ProducerIdEntry(epoch, sequence, 0L, 1, createTimeMs), time.milliseconds)
-    checkAndUpdate(idMapping, pid, sequence + 1, epoch, 2L)
+    val sequence = 0
+
+    assertEquals(None, idMapping.firstUndecidedOffset)
+
+    append(idMapping, pid, sequence, epoch, offset = 99, isTransactional = true)
+    assertEquals(Some(99L), idMapping.firstUndecidedOffset)
+
+    val anotherPid = 2L
+    append(idMapping, anotherPid, sequence, epoch, offset = 105, isTransactional = true)
+    assertEquals(Some(99L), idMapping.firstUndecidedOffset)
+
+    appendControl(idMapping, pid, epoch, ControlRecordType.COMMIT, offset = 109)
+    assertEquals(Some(105L), idMapping.firstUndecidedOffset)
+
+    appendControl(idMapping, anotherPid, epoch, ControlRecordType.ABORT, offset = 112)
+    assertEquals(None, idMapping.firstUndecidedOffset)
   }
 
-  @Test(expected = classOf[OutOfOrderSequenceException])
-  def testLoadIgnoresExpiredPids() {
+  @Test
+  def testProducersWithOngoingTransactionsDontExpire() {
     val epoch = 5.toShort
-    val sequence = 37
+    val sequence = 0
 
-    val createTimeMs = time.milliseconds
+    append(idMapping, pid, sequence, epoch, offset = 99, isTransactional = true)
+    assertEquals(Some(99L), idMapping.firstUndecidedOffset)
+
     time.sleep(maxPidExpirationMs + 1)
-    val loadTimeMs = time.milliseconds
-    idMapping.load(pid, ProducerIdEntry(epoch, sequence, 0L, 1, createTimeMs), loadTimeMs)
+    idMapping.removeExpiredPids(time.milliseconds)
 
-    // entry wasn't loaded, so this should fail
-    checkAndUpdate(idMapping, pid, sequence + 1, epoch, 2L)
+    assertTrue(idMapping.lastEntry(pid).isDefined)
+    assertEquals(Some(99L), idMapping.firstUndecidedOffset)
+
+    idMapping.removeExpiredPids(time.milliseconds)
+    assertTrue(idMapping.lastEntry(pid).isDefined)
   }
 
-  private def checkAndUpdate(mapping: ProducerIdMapping,
-                             pid: Long,
-                             seq: Int,
-                             epoch: Short,
-                             lastOffset: Long,
-                             timestamp: Long = time.milliseconds()): Unit = {
-    val offsetDelta = 0
-    val incomingPidEntry = ProducerIdEntry(epoch, seq, lastOffset, offsetDelta, timestamp)
+  @Test(expected = classOf[ProducerFencedException])
+  def testOldEpochForControlRecord(): Unit = {
+    val epoch = 5.toShort
+    val sequence = 0
+
+    assertEquals(None, idMapping.firstUndecidedOffset)
+
+    append(idMapping, pid, sequence, epoch, offset = 99, isTransactional = true)
+    appendControl(idMapping, pid, 3.toShort, ControlRecordType.COMMIT, offset=100)
+  }
+
+  private def appendControl(mapping: ProducerIdMapping,
+                            pid: Long,
+                            epoch: Short,
+                            controlType: ControlRecordType,
+                            offset: Long,
+                            timestamp: Long = time.milliseconds()): Unit = {
     val producerAppendInfo = new ProducerAppendInfo(pid, mapping.lastEntry(pid).getOrElse(ProducerIdEntry.Empty))
-    producerAppendInfo.append(incomingPidEntry)
+    val completedTxn = producerAppendInfo.appendControl(ControlRecord(controlType, pid, epoch, offset, timestamp))
     mapping.update(producerAppendInfo)
-    mapping.updateMapEndOffset(lastOffset + 1)
+    mapping.completeTxn(completedTxn)
+    mapping.updateMapEndOffset(offset + 1)
+  }
+
+  private def append(mapping: ProducerIdMapping,
+                     pid: Long,
+                     seq: Int,
+                     epoch: Short,
+                     offset: Long,
+                     timestamp: Long = time.milliseconds(),
+                     isTransactional: Boolean = false): Unit = {
+    val producerAppendInfo = new ProducerAppendInfo(pid, mapping.lastEntry(pid).getOrElse(ProducerIdEntry.Empty))
+    producerAppendInfo.append(epoch, seq, seq, timestamp, offset, isTransactional)
+    mapping.update(producerAppendInfo)
+    mapping.updateMapEndOffset(offset + 1)
   }
 
   private def currentSnapshotOffsets =

@@ -47,7 +47,8 @@ class LogValidatorTest {
       magic = magic,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
     val validatedRecords = validatedResults.validatedRecords
     assertEquals("message set size should not change", records.records.asScala.size, validatedRecords.records.asScala.size)
     validatedRecords.batches.asScala.foreach(batch => validateLogAppendTime(now, batch))
@@ -79,7 +80,8 @@ class LogValidatorTest {
       magic = targetMagic,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
     val validatedRecords = validatedResults.validatedRecords
 
     assertEquals("message set size should not change", records.records.asScala.size, validatedRecords.records.asScala.size)
@@ -115,7 +117,8 @@ class LogValidatorTest {
       magic = magic,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
     val validatedRecords = validatedResults.validatedRecords
 
     assertEquals("message set size should not change", records.records.asScala.size,
@@ -141,14 +144,19 @@ class LogValidatorTest {
   private def checkNonCompressed(magic: Byte) {
     val now = System.currentTimeMillis()
     val timestampSeq = Seq(now - 1, now + 1, now)
-    val producerId = if (magic >= RecordBatch.MAGIC_VALUE_V2) 1324L else RecordBatch.NO_PRODUCER_ID
-    val producerEpoch = if (magic >= RecordBatch.MAGIC_VALUE_V2) 10: Short else RecordBatch.NO_PRODUCER_EPOCH
-    val baseSequence = if (magic >= RecordBatch.MAGIC_VALUE_V2) 20 else RecordBatch.NO_SEQUENCE
-    val partitionLeaderEpoch = if (magic >= RecordBatch.MAGIC_VALUE_V2) 40 else RecordBatch.NO_PARTITION_LEADER_EPOCH
-    val records = MemoryRecords.withRecords(magic, 0L, CompressionType.NONE, producerId, producerEpoch, baseSequence,
-      partitionLeaderEpoch, new SimpleRecord(timestampSeq(0), "hello".getBytes),
-      new SimpleRecord(timestampSeq(1), "there".getBytes), new SimpleRecord(timestampSeq(2), "beautiful".getBytes))
 
+    val (producerId, producerEpoch, baseSequence, isTransactional, partitionLeaderEpoch) =
+      if (magic >= RecordBatch.MAGIC_VALUE_V2)
+        (1324L, 10.toShort, 984, true, 40)
+      else
+        (RecordBatch.NO_PRODUCER_ID, RecordBatch.NO_PRODUCER_EPOCH, RecordBatch.NO_SEQUENCE, false,
+          RecordBatch.NO_PARTITION_LEADER_EPOCH)
+
+    val records = MemoryRecords.withRecords(magic, 0L, CompressionType.GZIP, TimestampType.CREATE_TIME, producerId,
+      producerEpoch, baseSequence, partitionLeaderEpoch, isTransactional,
+      new SimpleRecord(timestampSeq(0), "hello".getBytes),
+      new SimpleRecord(timestampSeq(1), "there".getBytes),
+      new SimpleRecord(timestampSeq(2), "beautiful".getBytes))
 
     val validatingResults = LogValidator.validateMessagesAndAssignOffsets(records,
       offsetCounter = new LongRef(0),
@@ -159,7 +167,8 @@ class LogValidatorTest {
       magic = magic,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = partitionLeaderEpoch)
+      partitionLeaderEpoch = partitionLeaderEpoch,
+      isFromClient = true)
     val validatedRecords = validatingResults.validatedRecords
 
     var i = 0
@@ -170,6 +179,7 @@ class LogValidatorTest {
       assertEquals(producerEpoch, batch.producerEpoch)
       assertEquals(producerId, batch.producerId)
       assertEquals(baseSequence, batch.baseSequence)
+      assertEquals(isTransactional, batch.isTransactional)
       assertEquals(partitionLeaderEpoch, batch.partitionLeaderEpoch)
       for (record <- batch.asScala) {
         assertTrue(record.isValid)
@@ -195,14 +205,19 @@ class LogValidatorTest {
   private def checkRecompression(magic: Byte): Unit = {
     val now = System.currentTimeMillis()
     val timestampSeq = Seq(now - 1, now + 1, now)
-    val producerId = if (magic >= RecordBatch.MAGIC_VALUE_V2) 1324L else RecordBatch.NO_PRODUCER_ID
-    val producerEpoch = if (magic >= RecordBatch.MAGIC_VALUE_V2) 10: Short else RecordBatch.NO_PRODUCER_EPOCH
-    val baseSequence = if (magic >= RecordBatch.MAGIC_VALUE_V2) 20 else RecordBatch.NO_SEQUENCE
-    val partitionLeaderEpoch = if (magic >= RecordBatch.MAGIC_VALUE_V2) 40 else RecordBatch.NO_PARTITION_LEADER_EPOCH
-    val records = MemoryRecords.withRecords(magic, 0L, CompressionType.NONE, producerId, producerEpoch, baseSequence,
-      partitionLeaderEpoch, new SimpleRecord(timestampSeq(0), "hello".getBytes),
-      new SimpleRecord(timestampSeq(1), "there".getBytes), new SimpleRecord(timestampSeq(2), "beautiful".getBytes))
 
+    val (producerId, producerEpoch, baseSequence, isTransactional, partitionLeaderEpoch) =
+      if (magic >= RecordBatch.MAGIC_VALUE_V2)
+        (1324L, 10.toShort, 984, true, 40)
+      else
+        (RecordBatch.NO_PRODUCER_ID, RecordBatch.NO_PRODUCER_EPOCH, RecordBatch.NO_SEQUENCE, false,
+          RecordBatch.NO_PARTITION_LEADER_EPOCH)
+
+    val records = MemoryRecords.withRecords(magic, 0L, CompressionType.GZIP, TimestampType.CREATE_TIME, producerId,
+      producerEpoch, baseSequence, partitionLeaderEpoch, isTransactional,
+      new SimpleRecord(timestampSeq(0), "hello".getBytes),
+      new SimpleRecord(timestampSeq(1), "there".getBytes),
+      new SimpleRecord(timestampSeq(2), "beautiful".getBytes))
 
     val validatingResults = LogValidator.validateMessagesAndAssignOffsets(records,
       offsetCounter = new LongRef(0),
@@ -213,7 +228,8 @@ class LogValidatorTest {
       magic = magic,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = partitionLeaderEpoch)
+      partitionLeaderEpoch = partitionLeaderEpoch,
+      isFromClient = true)
     val validatedRecords = validatingResults.validatedRecords
 
     var i = 0
@@ -257,7 +273,8 @@ class LogValidatorTest {
       compactedTopic = false,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
     val validatedRecords = validatedResults.validatedRecords
 
     for (batch <- validatedRecords.batches.asScala) {
@@ -292,7 +309,8 @@ class LogValidatorTest {
       compactedTopic = false,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
     val validatedRecords = validatedResults.validatedRecords
 
     for (batch <- validatedRecords.batches.asScala) {
@@ -317,24 +335,31 @@ class LogValidatorTest {
   private def checkCompressed(magic: Byte) {
     val now = System.currentTimeMillis()
     val timestampSeq = Seq(now - 1, now + 1, now)
-    val producerId = if (magic >= RecordBatch.MAGIC_VALUE_V2) 1324L else RecordBatch.NO_PRODUCER_ID
-    val producerEpoch = if (magic >= RecordBatch.MAGIC_VALUE_V2) 10: Short else RecordBatch.NO_PRODUCER_EPOCH
-    val baseSequence = if (magic >= RecordBatch.MAGIC_VALUE_V2) 20 else RecordBatch.NO_SEQUENCE
-    val partitionLeaderEpoch = if (magic >= RecordBatch.MAGIC_VALUE_V2) 40 else RecordBatch.NO_PARTITION_LEADER_EPOCH
-    val records = MemoryRecords.withRecords(magic, 0L, CompressionType.GZIP, producerId, producerEpoch, baseSequence,
-      partitionLeaderEpoch, new SimpleRecord(timestampSeq(0), "hello".getBytes),
-      new SimpleRecord(timestampSeq(1), "there".getBytes), new SimpleRecord(timestampSeq(2), "beautiful".getBytes))
+
+    val (producerId, producerEpoch, baseSequence, isTransactional, partitionLeaderEpoch) =
+      if (magic >= RecordBatch.MAGIC_VALUE_V2)
+        (1324L, 10.toShort, 984, true, 40)
+      else
+        (RecordBatch.NO_PRODUCER_ID, RecordBatch.NO_PRODUCER_EPOCH, RecordBatch.NO_SEQUENCE, false,
+          RecordBatch.NO_PARTITION_LEADER_EPOCH)
+
+    val records = MemoryRecords.withRecords(magic, 0L, CompressionType.GZIP, TimestampType.CREATE_TIME, producerId,
+      producerEpoch, baseSequence, partitionLeaderEpoch, isTransactional,
+      new SimpleRecord(timestampSeq(0), "hello".getBytes),
+      new SimpleRecord(timestampSeq(1), "there".getBytes),
+      new SimpleRecord(timestampSeq(2), "beautiful".getBytes))
 
     val validatedResults = LogValidator.validateMessagesAndAssignOffsets(records,
-        offsetCounter = new LongRef(0),
-        now = System.currentTimeMillis(),
-        sourceCodec = DefaultCompressionCodec,
-        targetCodec = DefaultCompressionCodec,
-        magic = magic,
-        compactedTopic = false,
-        timestampType = TimestampType.CREATE_TIME,
-        timestampDiffMaxMs = 1000L,
-        partitionLeaderEpoch = partitionLeaderEpoch)
+      offsetCounter = new LongRef(0),
+      now = System.currentTimeMillis(),
+      sourceCodec = DefaultCompressionCodec,
+      targetCodec = DefaultCompressionCodec,
+      magic = magic,
+      compactedTopic = false,
+      timestampType = TimestampType.CREATE_TIME,
+      timestampDiffMaxMs = 1000L,
+      partitionLeaderEpoch = partitionLeaderEpoch,
+      isFromClient = true)
     val validatedRecords = validatedResults.validatedRecords
 
     var i = 0
@@ -378,7 +403,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V1,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
   }
 
   @Test(expected = classOf[InvalidTimestampException])
@@ -396,7 +422,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V2,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
   }
 
   @Test(expected = classOf[InvalidTimestampException])
@@ -414,7 +441,8 @@ class LogValidatorTest {
       compactedTopic = false,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
   }
 
   @Test(expected = classOf[InvalidTimestampException])
@@ -432,7 +460,8 @@ class LogValidatorTest {
       compactedTopic = false,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
   }
 
   @Test
@@ -449,7 +478,8 @@ class LogValidatorTest {
       compactedTopic = false,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -466,7 +496,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V0,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -484,7 +515,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V1,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords
     checkOffsets(messageWithOffset, offset)
   }
 
@@ -503,7 +535,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V2,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords
     checkOffsets(messageWithOffset, offset)
   }
 
@@ -523,7 +556,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V1,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords
     checkOffsets(compressedMessagesWithOffset, offset)
   }
 
@@ -543,7 +577,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V2,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords
     checkOffsets(compressedMessagesWithOffset, offset)
   }
 
@@ -561,7 +596,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V1,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -578,7 +614,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V2,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -595,7 +632,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V1,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -612,7 +650,25 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V2,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
+  }
+
+  @Test(expected = classOf[InvalidRecordException])
+  def testControlRecordsNotAllowedFromClients() {
+    val offset = 1234567
+    val records = MemoryRecords.withControlRecord(ControlRecordType.COMMIT, 23423L, 5)
+    LogValidator.validateMessagesAndAssignOffsets(records,
+      offsetCounter = new LongRef(offset),
+      now = System.currentTimeMillis(),
+      sourceCodec = SnappyCompressionCodec,
+      targetCodec = SnappyCompressionCodec,
+      compactedTopic = false,
+      magic = RecordBatch.MAGIC_VALUE_V1,
+      timestampType = TimestampType.CREATE_TIME,
+      timestampDiffMaxMs = 5000L,
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
   }
 
   @Test
@@ -630,7 +686,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V0,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -648,7 +705,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V0,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -665,7 +723,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V2,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -682,7 +741,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V2,
       timestampType = TimestampType.LOG_APPEND_TIME,
       timestampDiffMaxMs = 1000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -700,7 +760,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V1,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -718,7 +779,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V1,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -736,7 +798,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V0,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test
@@ -754,7 +817,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V0,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH).validatedRecords, offset)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true).validatedRecords, offset)
   }
 
   @Test(expected = classOf[InvalidRecordException])
@@ -770,7 +834,8 @@ class LogValidatorTest {
       magic = RecordBatch.MAGIC_VALUE_V1,
       timestampType = TimestampType.CREATE_TIME,
       timestampDiffMaxMs = 5000L,
-      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH)
+      partitionLeaderEpoch = RecordBatch.NO_PARTITION_LEADER_EPOCH,
+      isFromClient = true)
   }
 
   private def createRecords(magicValue: Byte = RecordBatch.CURRENT_MAGIC_VALUE,
