@@ -228,24 +228,30 @@ class LogTest extends JUnitSuite {
 
     val epoch: Short = 0
 
-    val buffer = ByteBuffer.allocate(512)
+    val buffer = ByteBuffer.allocate(16384)
+    var nextOffset = 0;
+    var builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.LZ4, TimestampType.LOG_APPEND_TIME, nextOffset, time.milliseconds(), 1L, epoch, 0)
+    for (i <- 0 until 10) {
+      builder.append(new SimpleRecord("".getBytes, i.toString.getBytes))
+      nextOffset += 1
+    }
 
-    var builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.LOG_APPEND_TIME, 0L, time.milliseconds(), 1L, epoch, 0)
-    builder.append(new SimpleRecord("key".getBytes, "value".getBytes))
     builder.close()
 
     // Append a record with other pids.
-    builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.LOG_APPEND_TIME, 1L, time.milliseconds(), 2L, epoch, 0)
+    builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.LZ4, TimestampType.LOG_APPEND_TIME, nextOffset, time.milliseconds(), 2L, epoch, 0)
     builder.append(new SimpleRecord("key".getBytes, "value".getBytes))
+    nextOffset += 1
     builder.close()
 
     // Append a record with other pids.
-    builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.LOG_APPEND_TIME, 2L, time.milliseconds(), 3L, epoch, 0)
+    builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.LZ4, TimestampType.LOG_APPEND_TIME, nextOffset, time.milliseconds(), 3L, epoch, 0)
     builder.append(new SimpleRecord("key".getBytes, "value".getBytes))
+    nextOffset += 1
     builder.close()
 
     // Append a record with other pids.
-    builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.NONE, TimestampType.LOG_APPEND_TIME, 3L, time.milliseconds(), 4L, epoch, 0)
+    builder = MemoryRecords.builder(buffer, RecordBatch.MAGIC_VALUE_V2, CompressionType.LZ4, TimestampType.LOG_APPEND_TIME, nextOffset, time.milliseconds(), 4L, epoch, 0)
     builder.append(new SimpleRecord("key".getBytes, "value".getBytes))
     builder.close()
 

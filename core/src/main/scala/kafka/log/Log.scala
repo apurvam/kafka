@@ -576,13 +576,19 @@ class Log(@volatile var dir: File,
     var offsetOfMaxTimestamp = -1L
     var isDuplicate = false
     val producerAppendInfos = mutable.Map[Long, ProducerAppendInfo]()
+    var numBatches = 0
 
     for (batch <- records.batches.asScala) {
+      numBatches += 1
       // update the first offset if on the first message. For magic versions older than 2, we use the last offset
       // to avoid the need to decompress the data (the last offset can be obtained directly from the wrapper message).
       // For magic version 2, we can get the first offset directly from the batch header.
       if (firstOffset < 0)
         firstOffset = if (batch.magic >= RecordBatch.MAGIC_VALUE_V2) batch.baseOffset else batch.lastOffset
+
+      if (1 < numBatches && RecordBatch.MAGIC_VALUE_V2 <= batch.magic() && isFromClient) {
+        throw new CorruptRecordException(s"Received a ProduceRequest from a client with more than one batch and with magic greater than than ${RecordBatch.MAGIC_VALUE_V2}.")
+      }
 
       // check that offsets are monotonically increasing
       if (lastOffset >= batch.lastOffset)
@@ -636,6 +642,8 @@ class Log(@volatile var dir: File,
               producerAppendInfo.append(batch)
             }
         }
+      } else {
+        error(s"Received a record without a pid. The record is from the client: ${isFromClient}")
       }
     }
 
