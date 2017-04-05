@@ -93,6 +93,21 @@ class OffsetIndex(file: File, baseOffset: Long, maxIndexSize: Int = -1)
     }
   }
 
+  /**
+   * Find an upper bound offset for the given fetch starting position and size. This is an offset which
+   * is guaranteed to be outside the fetched range
+   */
+  def lookup(fetchOffset: OffsetPosition, fetchSize: Int): OffsetPosition = {
+    maybeLock(lock) {
+      val idx = mmap.duplicate
+      val slot = indexSlotFor(idx, fetchOffset.position + fetchSize, IndexSearchType.VALUE, upperBound = true)
+      if(slot == -1)
+        lastEntry
+      else
+        parseEntry(idx, slot).asInstanceOf[OffsetPosition]
+    }
+  }
+
   private def relativeOffset(buffer: ByteBuffer, n: Int): Int = buffer.getInt(n * entrySize)
 
   private def physical(buffer: ByteBuffer, n: Int): Int = buffer.getInt(n * entrySize + 4)

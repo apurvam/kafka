@@ -202,10 +202,10 @@ class ProducerIdMappingTest extends JUnitSuite {
     append(idMapping, anotherPid, sequence, epoch, offset = 105, isTransactional = true)
     assertEquals(Some(99L), idMapping.firstUnstableOffset)
 
-    appendControl(idMapping, pid, epoch, ControlRecordType.COMMIT)
+    appendControl(idMapping, pid, epoch, ControlRecordType.COMMIT, offset = 109)
     assertEquals(Some(105L), idMapping.firstUnstableOffset)
 
-    appendControl(idMapping, anotherPid, epoch, ControlRecordType.ABORT)
+    appendControl(idMapping, anotherPid, epoch, ControlRecordType.ABORT, offset = 112)
     assertEquals(None, idMapping.firstUnstableOffset)
   }
 
@@ -235,16 +235,17 @@ class ProducerIdMappingTest extends JUnitSuite {
     assertEquals(None, idMapping.firstUnstableOffset)
 
     append(idMapping, pid, sequence, epoch, offset = 99, isTransactional = true)
-    appendControl(idMapping, pid, 3.toShort, ControlRecordType.COMMIT)
+    appendControl(idMapping, pid, 3.toShort, ControlRecordType.COMMIT, offset=100)
   }
 
   private def appendControl(mapping: ProducerIdMapping,
                             pid: Long,
                             epoch: Short,
                             controlType: ControlRecordType,
+                            offset: Long,
                             timestamp: Long = time.milliseconds()): Unit = {
     val producerAppendInfo = new ProducerAppendInfo(pid, mapping.lastEntry(pid).getOrElse(ProducerIdEntry.Empty))
-    producerAppendInfo.appendControl(epoch, timestamp, controlType)
+    producerAppendInfo.appendControl(ControlRecord(controlType, pid, epoch, offset, timestamp))
     mapping.update(producerAppendInfo)
   }
 

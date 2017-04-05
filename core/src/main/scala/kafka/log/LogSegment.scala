@@ -29,6 +29,8 @@ import kafka.utils._
 import org.apache.kafka.common.errors.CorruptRecordException
 import org.apache.kafka.common.record.FileRecords.LogEntryPosition
 import org.apache.kafka.common.record._
+import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
+import org.apache.kafka.common.requests.IsolationLevel
 import org.apache.kafka.common.utils.Time
 
 import scala.collection.JavaConverters._
@@ -53,6 +55,7 @@ import scala.math._
 class LogSegment(val log: FileRecords,
                  val index: OffsetIndex,
                  val timeIndex: TimeIndex,
+                 val txnIndex: TransactionIndex,
                  val baseOffset: Long,
                  val indexIntervalBytes: Int,
                  val rollJitterMs: Long,
@@ -70,10 +73,12 @@ class LogSegment(val log: FileRecords,
   @volatile private var maxTimestampSoFar = timeIndex.lastEntry.timestamp
   @volatile private var offsetOfMaxTimestamp = timeIndex.lastEntry.offset
 
-  def this(dir: File, startOffset: Long, indexIntervalBytes: Int, maxIndexSize: Int, rollJitterMs: Long, time: Time, fileAlreadyExists: Boolean = false, initFileSize: Int = 0, preallocate: Boolean = false) =
+  def this(dir: File, startOffset: Long, indexIntervalBytes: Int, maxIndexSize: Int, rollJitterMs: Long, time: Time,
+           fileAlreadyExists: Boolean = false, initFileSize: Int = 0, preallocate: Boolean = false) =
     this(FileRecords.open(Log.logFilename(dir, startOffset), fileAlreadyExists, initFileSize, preallocate),
          new OffsetIndex(Log.indexFilename(dir, startOffset), baseOffset = startOffset, maxIndexSize = maxIndexSize),
          new TimeIndex(Log.timeIndexFilename(dir, startOffset), baseOffset = startOffset, maxIndexSize = maxIndexSize),
+         new TransactionIndex(Log.txnIndexFilename(dir, startOffset)),
          startOffset,
          indexIntervalBytes,
          rollJitterMs,
@@ -131,6 +136,15 @@ class LogSegment(val log: FileRecords,
     }
   }
 
+   @nonthreadsafe
+   def updateTxnIndex(completedTxn: CompletedTxn, lastStableOffset: Long) {
+     if (completedTxn.isAborted) {
+       val abortedTxn = new AbortedTxn(completedTxn.pid, completedTxn.firstOffset, completedTxn.lastOffset,
+         lastStableOffset)
+       txnIndex.append(abortedTxn)
+     }
+   }
+
   /**
    * Find the physical file position for the first message with offset >= the requested offset.
    *
@@ -164,7 +178,8 @@ class LogSegment(val log: FileRecords,
    */
   @threadsafe
   def read(startOffset: Long, maxOffset: Option[Long], maxSize: Int, maxPosition: Long = size,
-           minOneMessage: Boolean = false): FetchDataInfo = {
+           minOneMessage: Boolean = false,
+           isolationLevel: IsolationLevel = IsolationLevel.READ_UNCOMMITTED): FetchDataInfo = {
     if (maxSize < 0)
       throw new IllegalArgumentException("Invalid max size for log read (%d)".format(maxSize))
 
@@ -175,7 +190,7 @@ class LogSegment(val log: FileRecords,
     if (startOffsetAndSize == null)
       return null
 
-    val startPosition = startOffsetAndSize.position.toInt
+    val startPosition = startOffsetAndSize.position
     val offsetMetadata = new LogOffsetMetadata(startOffset, this.baseOffset, startPosition)
 
     val adjustedMaxSize =
@@ -207,8 +222,17 @@ class LogSegment(val log: FileRecords,
         min(min(maxPosition, endPosition) - startPosition, adjustedMaxSize).toInt
     }
 
+    // FIXME: this needs to be moved up to Log so that we can expand the search into the next segments (if needed)
+    val abortedTransactions = isolationLevel match {
+      case IsolationLevel.READ_UNCOMMITTED => null
+      case IsolationLevel.READ_COMMITTED =>
+        collectAbortedTxns(OffsetPosition(startOffset, startPosition), length).map { abortedTxn =>
+          new AbortedTransaction(abortedTxn.producerId, abortedTxn.firstOffset)
+        }
+    }
     FetchDataInfo(offsetMetadata, log.read(startPosition, length),
-      firstEntryIncomplete = adjustedMaxSize < startOffsetAndSize.size)
+      firstEntryIncomplete = adjustedMaxSize < startOffsetAndSize.size,
+      abortedTransactions = abortedTransactions)
   }
 
   /**
@@ -225,6 +249,7 @@ class LogSegment(val log: FileRecords,
     index.resize(index.maxIndexSize)
     timeIndex.truncate()
     timeIndex.resize(timeIndex.maxIndexSize)
+    txnIndex.truncate()
     var validBytes = 0
     var lastIndexEntry = 0
     maxTimestampSoFar = RecordBatch.NO_TIMESTAMP
@@ -284,6 +309,10 @@ class LogSegment(val log: FileRecords,
     }
   }
 
+  def collectAbortedTxns(fetchOffset: OffsetPosition, fetchSize: Int): List[AbortedTxn] = {
+    val upperBoundOffset = index.lookup(fetchOffset, fetchSize)
+    txnIndex.collect(fetchOffset.offset, upperBoundOffset.offset)
+  }
 
   override def toString = "LogSegment(baseOffset=" + baseOffset + ", size=" + size + ")"
 
@@ -301,6 +330,7 @@ class LogSegment(val log: FileRecords,
       return 0
     index.truncateTo(offset)
     timeIndex.truncateTo(offset)
+    txnIndex.truncateTo(offset)
     // after truncation, reset and allocate more space for the (new currently  active) index
     index.resize(index.maxIndexSize)
     timeIndex.resize(timeIndex.maxIndexSize)
@@ -448,12 +478,15 @@ class LogSegment(val log: FileRecords,
     val deletedLog = log.delete()
     val deletedIndex = index.delete()
     val deletedTimeIndex = timeIndex.delete()
-    if(!deletedLog && log.file.exists)
+    val deletedTxnIndex = txnIndex.delete()
+    if (!deletedLog && log.file.exists)
       throw new KafkaStorageException("Delete of log " + log.file.getName + " failed.")
-    if(!deletedIndex && index.file.exists)
+    if (!deletedIndex && index.file.exists)
       throw new KafkaStorageException("Delete of index " + index.file.getName + " failed.")
-    if(!deletedTimeIndex && timeIndex.file.exists)
+    if (!deletedTimeIndex && timeIndex.file.exists)
       throw new KafkaStorageException("Delete of time index " + timeIndex.file.getName + " failed.")
+    if (!deletedTxnIndex && txnIndex.file.exists)
+      throw new KafkaStorageException("Delete of transaction index " + txnIndex.file.getName + " failed.")
   }
 
   /**

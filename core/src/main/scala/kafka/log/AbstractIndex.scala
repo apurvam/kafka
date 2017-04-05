@@ -29,7 +29,7 @@ import org.apache.kafka.common.Os
 import org.apache.kafka.common.utils.Utils
 import sun.nio.ch.DirectBuffer
 
-import scala.math.ceil
+import scala.math.{ceil, floor}
 
 /**
  * The abstract index class which holds entry format agnostic methods.
@@ -240,18 +240,22 @@ abstract class AbstractIndex[K, V](@volatile var file: File, val baseOffset: Lon
    * Find the slot in which the largest entry less than or equal to the given target key or value is stored.
    * The comparison is made using the `IndexEntry.compareTo()` method.
    *
+   * FIXME: I hacked a change to reuse this method for doing upper-bound lookups. probably cleaner to just
+   *        use a separate method so that the return results are unambiguous.
+   *
    * @param idx The index buffer
    * @param target The index key to look for
    * @return The slot found or -1 if the least entry in the index is larger than the target key or the index is empty
    */
-  protected def indexSlotFor(idx: ByteBuffer, target: Long, searchEntity: IndexSearchEntity): Int = {
+  protected def indexSlotFor(idx: ByteBuffer, target: Long, searchEntity: IndexSearchEntity,
+                             upperBound: Boolean = false): Int = {
     // check if the index is empty
     if(_entries == 0)
       return -1
 
     // check if the target offset is smaller than the least offset
     if(compareIndexEntry(parseEntry(idx, 0), target, searchEntity) > 0)
-      return -1
+      return if (upperBound) 0 else -1
 
     // binary search for the entry
     var lo = 0
@@ -267,7 +271,11 @@ abstract class AbstractIndex[K, V](@volatile var file: File, val baseOffset: Lon
       else
         return mid
     }
-    lo
+
+    if (upperBound)
+      if (lo == _entries - 1) -1 else lo + 1
+    else
+      lo
   }
 
   private def compareIndexEntry(indexEntry: IndexEntry, target: Long, searchEntity: IndexSearchEntity): Int = {

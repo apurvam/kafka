@@ -36,11 +36,14 @@ class LogSegmentTest {
     val ms = FileRecords.open(msFile)
     val idxFile = TestUtils.tempFile()
     val timeIdxFile = TestUtils.tempFile()
+    val txnIdxFile = TestUtils.tempFile()
     idxFile.delete()
     timeIdxFile.delete()
+    txnIdxFile.delete()
     val idx = new OffsetIndex(idxFile, offset, 1000)
     val timeIdx = new TimeIndex(timeIdxFile, offset, 1500)
-    val seg = new LogSegment(ms, idx, timeIdx, offset, indexIntervalBytes, 0, Time.SYSTEM)
+    val txnIndex = new TransactionIndex(txnIdxFile)
+    val seg = new LogSegment(ms, idx, timeIdx, txnIndex, offset, indexIntervalBytes, 0, Time.SYSTEM)
     segments += seg
     seg
   }
