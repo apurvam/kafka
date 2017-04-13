@@ -38,7 +38,7 @@ private[log] class TransactionIndex(val file: File) extends Logging {
 
   def delete(): Boolean = file.delete()
 
-  def truncate() = channel.truncate(0)
+  def truncate() = Unit //  don't truncate for now.. channel.truncate(0)
 
   def truncateTo(offset: Long): Unit = {
     inLock(lock) {
