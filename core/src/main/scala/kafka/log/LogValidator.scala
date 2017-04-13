@@ -68,16 +68,11 @@ private[kafka] object LogValidator extends Logging {
     }
   }
 
-  private def validateBatch(batch: RecordBatch): Unit = {
-    ensureNonTransactional(batch)
-  }
-
   private def validateRecord(batch: RecordBatch, record: Record, now: Long, timestampType: TimestampType,
                              timestampDiffMaxMs: Long, compactedTopic: Boolean): Unit = {
     if (!record.hasMagic(batch.magic))
       throw new InvalidRecordException(s"Log record magic does not match outer magic ${batch.magic}")
     record.ensureValid()
-    ensureNotControlRecord(record)
     validateKey(record, compactedTopic)
     validateTimestamp(batch, record, now, timestampType, timestampDiffMaxMs)
   }
@@ -102,7 +97,6 @@ private[kafka] object LogValidator extends Logging {
     val builder = MemoryRecords.builder(newBuffer, toMagicValue, CompressionType.NONE, timestampType, offsetCounter.value, now, pid, epoch, sequence, false, partitionLeaderEpoch)
 
     for (batch <- records.batches.asScala) {
-      validateBatch(batch)
 
       for (record <- batch.asScala) {
         validateRecord(batch, record, now, timestampType, timestampDiffMaxMs, compactedTopic)
@@ -132,7 +126,6 @@ private[kafka] object LogValidator extends Logging {
     var isMagicV2 = false
 
     for (batch <- records.batches.asScala) {
-      validateBatch(batch)
 
       var maxBatchTimestamp = RecordBatch.NO_TIMESTAMP
       var offsetOfMaxBatchTimestamp = -1L
@@ -207,7 +200,6 @@ private[kafka] object LogValidator extends Logging {
       val validatedRecords = new mutable.ArrayBuffer[Record]
 
       for (batch <- records.batches.asScala) {
-        validateBatch(batch)
 
         for (record <- batch.asScala) {
           validateRecord(batch, record, now, timestampType, timestampDiffMaxMs, compactedTopic)
@@ -284,17 +276,6 @@ private[kafka] object LogValidator extends Logging {
       maxTimestamp = info.maxTimestamp,
       shallowOffsetOfMaxTimestamp = info.shallowOffsetOfMaxTimestamp,
       messageSizeMaybeChanged = true)
-  }
-
-  private def ensureNonTransactional(batch: RecordBatch) {
-    if (batch.isTransactional)
-      throw new InvalidRecordException("Transactional messages are not currently supported")
-  }
-
-  private def ensureNotControlRecord(record: Record) {
-    // Until we have implemented transaction support, we do not permit control records to be written
-    if (record.isControlRecord)
-      throw new InvalidRecordException("Control messages are not currently supported")
   }
 
   private def validateKey(record: Record, compactedTopic: Boolean) {

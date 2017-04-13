@@ -339,7 +339,8 @@ public class MemoryRecords extends AbstractRecords {
                                                long producerId,
                                                short producerEpoch,
                                                int baseSequence,
-                                               boolean isTransactional, int partitionLeaderEpoch) {
+                                               boolean isTransactional,
+                                               int partitionLeaderEpoch) {
         return new MemoryRecordsBuilder(buffer, magic, compressionType, timestampType, baseOffset,
                 logAppendTime, producerId, producerEpoch, baseSequence, isTransactional, partitionLeaderEpoch,
                 buffer.remaining());
@@ -397,7 +398,8 @@ public class MemoryRecords extends AbstractRecords {
     public static MemoryRecords withControlRecord(ControlRecordType type, long pid, short epoch) {
         ByteBuffer buffer = ByteBuffer.allocate(128);
         MemoryRecordsBuilder builder = builder(buffer, RecordBatch.CURRENT_MAGIC_VALUE, CompressionType.NONE,
-                TimestampType.CREATE_TIME, 0L, RecordBatch.NO_TIMESTAMP, pid, epoch, RecordBatch.CONTROL_SEQUENCE);
+                TimestampType.CREATE_TIME, 0L, RecordBatch.NO_TIMESTAMP, pid, epoch, RecordBatch.CONTROL_SEQUENCE, true,
+                RecordBatch.NO_PARTITION_LEADER_EPOCH);
         builder.appendControlRecord(System.currentTimeMillis(), type, null);
         return builder.build();
     }

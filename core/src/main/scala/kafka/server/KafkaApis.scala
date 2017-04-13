@@ -492,8 +492,15 @@ class KafkaApis(val requestChannel: RequestChannel,
             case _ => data
           }
 
+          // We need this awkwardness as a workaround https://issues.scala-lang.org/browse/SI-9676
+          val abortedTransactions =
+            if (convertedData.abortedTransactions != null)
+              convertedData.abortedTransactions.asJava
+            else
+              null
+
           tp -> new FetchResponse.PartitionData(convertedData.error, convertedData.hw, FetchResponse.INVALID_LAST_STABLE_OFFSET,
-            convertedData.logStartOffset, convertedData.abortedTransactions.asJava, convertedData.records)
+            convertedData.logStartOffset, abortedTransactions, convertedData.records)
         }
       }
 
