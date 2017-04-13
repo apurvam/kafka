@@ -202,7 +202,7 @@ class LogSegment(val log: FileRecords,
       return FetchDataInfo(offsetMetadata, MemoryRecords.EMPTY)
 
     // calculate the length of the message set to read based on whether or not they gave us a maxOffset
-    val length = maxOffset match {
+    val length : Int = maxOffset match {
       case None =>
         // no max offset, just read until the max position
         min((maxPosition - startPosition).toInt, adjustedMaxSize)

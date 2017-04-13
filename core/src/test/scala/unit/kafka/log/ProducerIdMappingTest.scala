@@ -173,7 +173,7 @@ class ProducerIdMappingTest extends JUnitSuite {
 
     intercept[OutOfOrderSequenceException] {
       val recoveredMapping = new ProducerIdMapping(config, partition, idMappingDir, maxPidExpirationMs)
-      recoveredMapping.truncateAndReload(1L)
+      recoveredMapping.truncateAndReload(1L, time.milliseconds)
       append(recoveredMapping, pid2, 1, epoch, 4L, 5L)
     }
   }

@@ -26,7 +26,7 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{DuplicateSequenceNumberException, OutOfOrderSequenceException, ProducerFencedException}
 import org.apache.kafka.common.protocol.types._
 import org.apache.kafka.common.record.{ControlRecordType, RecordBatch}
-import org.apache.kafka.common.utils.{ByteUtils, Crc32}
+import org.apache.kafka.common.utils.{ByteUtils, Crc32C}
 
 import scala.collection.mutable.ListBuffer
 import scala.collection.{immutable, mutable}
@@ -114,7 +114,7 @@ private[log] class ProducerAppendInfo(val pid: Long, initialEntry: ProducerIdEnt
           controlRecord.offset
 
         currentTxnFirstOffset = -1
-        lastTimestamp = controlRecord.timestamp
+        maxTimestamp = controlRecord.timestamp
         CompletedTxn(pid, firstOffset, controlRecord.offset, controlRecord.controlType == ControlRecordType.ABORT)
 
       case unhandled => throw new IllegalArgumentException(s"Unhandled control type $unhandled")
@@ -192,7 +192,7 @@ object ProducerIdMapping {
       val timestamp = pidEntryStruct.getLong(TimestampField)
       val numRecords = pidEntryStruct.getInt(NumRecordsField)
       val currentTxnFirstOffset = pidEntryStruct.getLong(CurrentTxnFirstOffsetField)
-      val newEntry = ProducerIdEntry(epoch, seq, offset, numRecords, timestamp, currentTxnFirstOffset)
+      val newEntry = ProducerIdEntry(pid, epoch, seq, offset, numRecords, timestamp, currentTxnFirstOffset)
       if (checkNotExpired(newEntry))
         pidMap.put(pid, newEntry)
     }
@@ -322,7 +322,7 @@ class ProducerIdMapping(val config: LogConfig,
 
   def truncateAndReload(logEndOffset: Long, currentTime: Long) {
     truncateSnapshotFiles(logEndOffset)
-    def checkNotExpired = (producerIdEntry: ProducerIdEntry) => { !hasExpired(currentTime, producerIdEntry) }
+    def checkNotExpired = (producerIdEntry: ProducerIdEntry) => { !hasExpired(producerIdEntry, currentTime) }
     loadFromSnapshot(logEndOffset, checkNotExpired)
   }
 
