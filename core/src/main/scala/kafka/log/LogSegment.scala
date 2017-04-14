@@ -467,6 +467,7 @@ class LogSegment(val log: FileRecords,
     CoreUtils.swallow(index.close())
     CoreUtils.swallow(timeIndex.close())
     CoreUtils.swallow(log.close())
+    CoreUtils.swallow(txnIndex.close())
   }
 
   /**
