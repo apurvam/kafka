@@ -37,7 +37,7 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.protocol.types.Type._
 import org.apache.kafka.common.protocol.types.{ArrayOf, Field, Schema, Struct}
 import org.apache.kafka.common.record._
-import org.apache.kafka.common.requests.OffsetFetchResponse
+import org.apache.kafka.common.requests.{IsolationLevel, OffsetFetchResponse}
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.utils.{Time, Utils}
 
@@ -437,7 +437,10 @@ class GroupMetadataManager(val brokerId: Int,
 
         while (currOffset < highWaterMark && !shuttingDown.get()) {
           buffer.clear()
-          val fileRecords = log.read(currOffset, config.loadBufferSize, maxOffset = None, minOneMessage = true)
+          // We only add the READ_UNCOMMITTED parameter here because EasyMock in the GroupMetadataManagerTest
+          // cannot seem to deal with the default value for isolationLevel in log.read() -- it throws an
+          // IllegalStateException.
+          val fileRecords = log.read(currOffset, config.loadBufferSize, maxOffset = None, minOneMessage = true, isolationLevel = IsolationLevel.READ_UNCOMMITTED)
             .records.asInstanceOf[FileRecords]
           val bufferRead = fileRecords.readInto(buffer, 0)
 

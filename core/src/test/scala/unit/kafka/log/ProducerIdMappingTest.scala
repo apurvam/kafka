@@ -108,10 +108,10 @@ class ProducerIdMappingTest extends JUnitSuite {
 
     idMapping.maybeTakeSnapshot()
     val recoveredMapping = new ProducerIdMapping(config, partition, idMappingDir, maxPidExpirationMs)
-    recoveredMapping.truncateAndReload(3L, time.milliseconds)
+    recoveredMapping.truncateAndReload(3L, 3L)
 
     // entry added after recovery
-    append(recoveredMapping, pid, 2, epoch, 2L, 3L)
+    append(recoveredMapping, pid, 2, epoch, 2L, 4L)
 
   }
 
