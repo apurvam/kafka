@@ -16,7 +16,7 @@
  */
 package kafka.log
 
-import java.io.{File, RandomAccessFile}
+import java.io.{File, IOException, RandomAccessFile}
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.util.concurrent.locks.ReentrantLock
@@ -27,7 +27,10 @@ import org.apache.kafka.common.utils.Utils
 
 import scala.collection.mutable.ListBuffer
 
-private[log] class TransactionIndex(val file: File) extends Logging {
+/**
+  * TODO(apurva): why not make this a subclass of {@link AbstractIndex} ?
+  */
+private[log] class TransactionIndex(var file: File) extends Logging {
     val channel: FileChannel = new RandomAccessFile(file, "rw").getChannel
 
   private val lock = new ReentrantLock
@@ -41,6 +44,12 @@ private[log] class TransactionIndex(val file: File) extends Logging {
   def truncate() = Unit //  don't truncate for now.. channel.truncate(0)
 
   def close() = channel.close()
+
+  def renameTo(f: File) {
+    try Utils.atomicMoveWithFallback(file.toPath, f.toPath)
+    finally file = f
+  }
+
 
   def truncateTo(offset: Long): Unit = {
     inLock(lock) {

@@ -395,6 +395,10 @@ class LogSegment(val log: FileRecords,
     catch {
       case e: IOException => throw kafkaStorageException("timeindex", e)
     }
+    try txnIndex.renameTo(new File(CoreUtils.replaceSuffix(txnIndex.file.getPath, oldSuffix, newSuffix)))
+    catch {
+      case e: IOException => throw kafkaStorageException("txnindex", e)
+    }
   }
 
   /**

@@ -1372,7 +1372,7 @@ object Log {
    * @param offset The base offset of the log file
    */
   def txnIndexFilename(dir: File, offset: Long) =
-    new File(dir, filenamePrefixFromOffset(offset) + TimeIndexFileSuffix)
+    new File(dir, filenamePrefixFromOffset(offset) + TxnIndexFileSuffix)
 
   /**
    * Parse the topic and partition out of the directory name of a log
