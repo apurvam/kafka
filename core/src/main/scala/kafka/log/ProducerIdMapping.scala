@@ -70,11 +70,12 @@ private[log] class ProducerAppendInfo(val pid: Long, initialEntry: ProducerIdEnt
         throw new OutOfOrderSequenceException(s"Invalid sequence number for new epoch: $epoch " +
           s"(request epoch), $firstSeq (seq. number)")
     } else if (firstSeq == this.firstSeq && lastSeq == this.lastSeq) {
-      throw new DuplicateSequenceNumberException(s"Duplicate sequence number: $pid (pid), $firstSeq " +
-        s"(seq. number), ${this.firstSeq} (expected seq. number)")
+      throw new DuplicateSequenceNumberException(s"Duplicate sequence number: pid: $pid, (incomingBatch.firstSeq, " +
+        s"incomingBatch.lastSeq): ($firstSeq, $lastSeq), (lastEntry.firstSeq, lastEntry.lastSeq): " +
+        s"(${this.firstSeq}, ${this.lastSeq}).")
     } else if (firstSeq != this.lastSeq + 1L) {
       throw new OutOfOrderSequenceException(s"Invalid sequence number: $pid (pid), $firstSeq " +
-        s"(seq. number), ${this.lastSeq} (expected seq. number)")
+        s"(incoming seq. number), ${this.lastSeq} (current end sequence number)")
     }
   }
 
