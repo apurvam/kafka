@@ -28,11 +28,8 @@ import kafka.common._
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.{BrokerTopicStats, FetchDataInfo, LogOffsetMetadata}
 import kafka.utils._
-import org.apache.kafka.common.errors.{CorruptRecordException, OffsetOutOfRangeException, RecordBatchTooLargeException, RecordTooLargeException, UnsupportedForMessageFormatException}
 import org.apache.kafka.common.record._
-import org.apache.kafka.common.requests.ListOffsetRequest
 import org.apache.kafka.common.requests.{IsolationLevel, ListOffsetRequest}
-import org.apache.kafka.common.utils.{Time, Utils}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
@@ -43,6 +40,7 @@ import kafka.message.{BrokerCompressionCodec, CompressionCodec, NoCompressionCod
 import kafka.server.checkpoints.{LeaderEpochCheckpointFile, LeaderEpochFile}
 import kafka.server.epoch.{LeaderEpochCache, LeaderEpochFileCache}
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.{CorruptRecordException, RecordBatchTooLargeException, RecordTooLargeException, UnsupportedForMessageFormatException}
 
 object LogAppendInfo {
   val UnknownLogAppendInfo = LogAppendInfo(-1, -1, RecordBatch.NO_TIMESTAMP, -1L, RecordBatch.NO_TIMESTAMP,
@@ -402,10 +400,20 @@ class Log(@volatile var dir: File,
       val currentTimeMs = time.milliseconds
       pidMap.truncateAndReload(lastOffset, currentTimeMs)
       logSegments(pidMap.mapEndOffset, lastOffset).foreach { segment =>
-        val startOffset = math.max(segment.baseOffset, pidMap.mapEndOffset)
-        val records = segment.read(startOffset, Some(lastOffset), Int.MaxValue).records
-        loadPidsFromLog(records)
-      }
+        // If we are starting from somewhere in the middle of the log, we should not reread the current end offset
+        // in the pidMap.
+        val nextPidMapOffset =
+          if (pidMap.mapEndOffset != 0)
+            pidMap.mapEndOffset + 1
+          else
+            pidMap.mapEndOffset
+        val startOffset = math.max(segment.baseOffset, nextPidMapOffset)
+        val fetchDataInfo = segment.read(startOffset, Some(lastOffset), Int.MaxValue)
+        if (fetchDataInfo != null) {
+          val records = fetchDataInfo.records
+          loadPidsFromLog(records)
+        }
+     }
       pidMap.cleanFrom(logStartOffset)
     }
   }

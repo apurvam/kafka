@@ -74,7 +74,7 @@ private[log] class ProducerAppendInfo(val pid: Long, initialEntry: ProducerIdEnt
         s"incomingBatch.lastSeq): ($firstSeq, $lastSeq), (lastEntry.firstSeq, lastEntry.lastSeq): " +
         s"(${this.firstSeq}, ${this.lastSeq}).")
     } else if (firstSeq != this.lastSeq + 1L) {
-      throw new OutOfOrderSequenceException(s"Invalid sequence number: $pid (pid), $firstSeq " +
+      throw new OutOfOrderSequenceException(s"Out of order sequence number: $pid (pid), $firstSeq " +
         s"(incoming seq. number), ${this.lastSeq} (current end sequence number)")
     }
   }
@@ -296,6 +296,7 @@ class ProducerIdMapping(val config: LogConfig,
       lastSnapshotFile(logEndOffset) match {
         case Some(file) =>
           try {
+            trace(s"loading snapshot ending at offset offset: ${offsetFromFile(file)}")
             loadSnapshot(file, pidMap, checkNotExpired)
             lastSnapOffset = offsetFromFile(file)
             lastMapOffset = lastSnapOffset
@@ -335,7 +336,8 @@ class ProducerIdMapping(val config: LogConfig,
       throw new IllegalArgumentException("Invalid PID passed to update")
     val entry = appendInfo.lastEntry
     pidMap.put(appendInfo.pid, entry)
-    lastMapOffset = entry.lastOffset
+    if (entry.lastOffset > lastMapOffset)
+      lastMapOffset = entry.lastOffset
     ongoingTransactions ++= appendInfo.startedTransactions
   }
 
@@ -423,8 +425,10 @@ class ProducerIdMapping(val config: LogConfig,
   private def truncateSnapshotFiles(maxOffset: Long) {
     listSnapshotFiles().foreach { file =>
       val snapshotLastOffset = offsetFromFile(file)
-      if (snapshotLastOffset >= maxOffset)
+      if (snapshotLastOffset >= maxOffset) {
+        trace(s"Removing snapshot file with offset $snapshotLastOffset since it is greater than or equal to $maxOffset")
         file.delete()
+      }
     }
   }
 

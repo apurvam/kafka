@@ -372,6 +372,7 @@ class LogSegment(val log: FileRecords,
       log.flush()
       index.flush()
       timeIndex.flush()
+      txnIndex.flush()
     }
   }
 

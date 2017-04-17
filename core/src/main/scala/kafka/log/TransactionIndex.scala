@@ -40,6 +40,7 @@ private[log] class TransactionIndex(var file: File) extends Logging {
   def flush(): Unit = channel.force(true)
 
   def delete(): Boolean = {
+    channel.force(true)
     close()
     file.delete()
   }
