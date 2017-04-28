@@ -26,7 +26,7 @@ import org.apache.kafka.common.protocol.Errors
   */
 private[transaction] class DelayedTxnMarker(txnMetadata: TransactionMetadata,
                                            completionCallback: Errors => Unit)
-  extends DelayedOperation(TimeUnit.DAYS.convert(100 * 365, TimeUnit.MILLISECONDS)) {
+  extends DelayedOperation(TimeUnit.DAYS.toMillis(100 * 365)) {
 
   // overridden since tryComplete already synchronizes on the existing txn metadata. This makes it safe to
   // call purgatory operations while holding the group lock.
