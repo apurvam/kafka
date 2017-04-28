@@ -343,6 +343,23 @@ public class TransactionManager {
         return false;
     }
 
+    boolean maybeTerminateRequestWithError(TransactionalRequest request) {
+        if (isInErrorState() && request.isEndTxnRequest()) {
+            // We shouldn't terminate abort requests from error states.
+            EndTxnCallback endTxnCallback = (EndTxnCallback) request.responseHandler();
+            if (!endTxnCallback.isCommit)
+                return false;
+            String errorMessage = "Cannot commit transaction because at least one previous transactional request " +
+                    "was not completed successfully.";
+            if (lastError != null)
+                request.maybeTerminateWithError(new KafkaException(errorMessage, lastError));
+            else
+                request.maybeTerminateWithError(new KafkaException(errorMessage));
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Get the current pid and epoch without blocking. Callers must use {@link PidAndEpoch#isValid()} to
      * verify that the result is valid.

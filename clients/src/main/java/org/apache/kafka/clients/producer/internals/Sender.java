@@ -289,11 +289,8 @@ public class Sender implements Runnable {
             return false;
         }
 
-        if (nextRequest.isEndTxnRequest() && transactionManager.isInErrorState()) {
-            nextRequest.maybeTerminateWithError(new KafkaException("Cannot commit transaction when there are " +
-                    "request errors. Please check your logs for the details of the errors encountered."));
+        if (transactionManager.maybeTerminateRequestWithError(nextRequest))
             return false;
-        }
 
         Node targetNode = null;
 
