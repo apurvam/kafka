@@ -66,13 +66,17 @@ class TransactionsTest extends KafkaServerTestHarness {
       error("initing transactions")
       producer.initTransactions()
       error("inited transactions")
+      
       producer.beginTransaction()
-
       producer.send(producerRecord(topic1, "1", "1", willBeCommitted = true))
-      producer.send(producerRecord(topic2, "2", "2", willBeCommitted = false))
       producer.send(producerRecord(topic2, "3", "3", willBeCommitted = true))
-      producer.send(producerRecord(topic1, "4", "4", willBeCommitted = false))
       producer.commitTransaction()
+
+      producer.beginTransaction()
+      producer.send(producerRecord(topic2, "2", "2", willBeCommitted = false))
+      producer.send(producerRecord(topic1, "4", "4", willBeCommitted = false))
+      producer.abortTransaction()
+
       consumer.subscribe(List(topic1, topic2))
 
       val records = pollUntilNumRecords(consumer, 3)
