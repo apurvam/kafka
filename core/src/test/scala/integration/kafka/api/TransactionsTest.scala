@@ -34,7 +34,7 @@ import scala.collection.JavaConversions._
 import scala.collection.mutable.ArrayBuffer
 
 class TransactionsTest extends KafkaServerTestHarness {
-  val numServers = 3
+  val numServers = 1
   val topic1 = "topic1"
   val topic2 = "topic2"
 
@@ -47,7 +47,7 @@ class TransactionsTest extends KafkaServerTestHarness {
     super.setUp()
     val numPartitions = 3
     val topicConfig = new Properties();
-    topicConfig.put(KafkaConfig.MinInSyncReplicasProp, 2.toString)
+//    topicConfig.put(KafkaConfig.MinInSyncReplicasProp, 2.toString)
     TestUtils.createTopic(zkUtils, topic1, numPartitions, numServers, servers, topicConfig)
     TestUtils.createTopic(zkUtils, topic2, numPartitions, numServers, servers, topicConfig)
   }
@@ -66,22 +66,23 @@ class TransactionsTest extends KafkaServerTestHarness {
       error("initing transactions")
       producer.initTransactions()
       error("inited transactions")
-      
+
       producer.beginTransaction()
       producer.send(producerRecord(topic1, "1", "1", willBeCommitted = true))
       producer.send(producerRecord(topic2, "3", "3", willBeCommitted = true))
-      producer.commitTransaction()
 
-      producer.beginTransaction()
-      producer.send(producerRecord(topic2, "2", "2", willBeCommitted = false))
-      producer.send(producerRecord(topic1, "4", "4", willBeCommitted = false))
-      producer.abortTransaction()
+      //producer.beginTransaction()
+      //producer.send(producerRecord(topic2, "2", "2", willBeCommitted = false))
+      //producer.send(producerRecord(topic1, "4", "4", willBeCommitted = false))
+      //producer.abortTransaction()
 
       consumer.subscribe(List(topic1, topic2))
 
-      val records = pollUntilNumRecords(consumer, 3)
+      val records = pollUntilNumRecords(consumer, 2)
       records.zipWithIndex.foreach { case (record, i) =>
-        assertTrue(record.value().endsWith("committed"))
+        val recordValue = new String(record.value(), "UTF-8")
+        info(s"READ RECORD: ${recordValue}")
+        assertTrue(recordValue.endsWith("committed"))
       }
     } catch {
       case e @ (_ : KafkaException | _ : ProducerFencedException) =>
@@ -97,7 +98,7 @@ class TransactionsTest extends KafkaServerTestHarness {
       value + "-committed"
     else
       value + "-aborted"
-    new ProducerRecord[Array[Byte], Array[Byte]](topic, key.getBytes, suffixedValue.getBytes)
+    new ProducerRecord[Array[Byte], Array[Byte]](topic, key.getBytes("UTF-8"), suffixedValue.getBytes("UTF-8"))
   }
 
 
@@ -107,7 +108,9 @@ class TransactionsTest extends KafkaServerTestHarness {
     // Set a smaller value for the number of partitions for the offset commit topic (__consumer_offset topic)
     // so that the creation of that topic/partition(s) and subsequent leader assignment doesn't take relatively long
     serverProps.put(KafkaConfig.OffsetsTopicPartitionsProp, 1.toString)
-    serverProps.put(KafkaConfig.TransactionsTopicPartitionsProp, 3.toString)
+    serverProps.put(KafkaConfig.TransactionsTopicPartitionsProp, 1.toString)
+    serverProps.put(KafkaConfig.TransactionsTopicReplicationFactorProp, 1.toString)
+    serverProps.put(KafkaConfig.TransactionsTopicMinISRProp, 1.toString)
     serverProps.put(KafkaConfig.ControlledShutdownEnableProp, true.toString)
     serverProps.put(KafkaConfig.UncleanLeaderElectionEnableProp, false.toString)
     serverProps.put(KafkaConfig.AutoLeaderRebalanceEnableProp, false.toString)
