@@ -345,10 +345,12 @@ public class TransactionManager {
 
     boolean maybeTerminateRequestWithError(TransactionalRequest request) {
         if (isInErrorState() && request.isEndTxnRequest()) {
-            // We shouldn't terminate abort requests from error states.
-            EndTxnCallback endTxnCallback = (EndTxnCallback) request.responseHandler();
-            if (!endTxnCallback.isCommit)
-                return false;
+            if (request.isEndTxnRequest()) {
+                // We shouldn't terminate abort requests from error states.
+                EndTxnCallback endTxnCallback = (EndTxnCallback) request.responseHandler();
+                if (!endTxnCallback.isCommit)
+                    return false;
+            }
             String errorMessage = "Cannot commit transaction because at least one previous transactional request " +
                     "was not completed successfully.";
             if (lastError != null)
