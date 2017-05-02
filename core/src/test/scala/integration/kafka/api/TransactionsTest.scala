@@ -195,7 +195,7 @@ class TransactionsTest extends KafkaServerTestHarness {
           fail("Got an unexpected exception from a fenced producer.", e)
       }
 
-      producer2.commitTransaction() // ok
+      producer2.commitTransaction()  // ok
 
       val records = pollUntilExactlyNumRecords(consumer, 2)
       records.zipWithIndex.foreach { case (record, i) =>
