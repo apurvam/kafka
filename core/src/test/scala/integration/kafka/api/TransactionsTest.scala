@@ -129,7 +129,6 @@ class TransactionsTest extends KafkaServerTestHarness {
         producer.sendOffsetsToTransaction(offsetsToCommit(consumer), consumerGroupId)
         if (shouldCommit) {
           producer.commitTransaction()
-          consumer.commitSync()
           recordsProcessed += records.size
           debug(s"committed transaction.. Last committed record: ${new String(records.last.value(), "UTF-8")}. Num " +
             s"records written to $topic2: $recordsProcessed")
