@@ -137,8 +137,9 @@ class TransactionsTest extends KafkaServerTestHarness {
           trace("aborted transaction")
           // reset the subscription. Practically, we will have a new consumer instance when transactions are aborted
           // (like during a streams re balance). But we need to do this manually for this test, otherwise the consumer
-          // will continue to fetch from the cached fetch position and the test will fail because it will fail to consume
-          // the expected number of messages from the source topic.
+          // will continue to fetch from the cached fetch position and the test will fail because it will fail to
+          // produce the expected number of messages to the destination topic since some of the aborted transactions
+          // will not result in offset resets.
           resetToLastCommittedPosition(consumer)
         }
       }
