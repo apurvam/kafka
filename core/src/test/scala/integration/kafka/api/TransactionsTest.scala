@@ -291,7 +291,7 @@ class TransactionsTest extends KafkaServerTestHarness {
     } finally {
       producer.close()
     }
-    debug(s"Wrote ${recordsWritten} records to ${topic}.")
+    debug(s"Wrote $recordsWritten records to $topic.")
   }
 
   private def offsetsToCommit(consumer: KafkaConsumer[Array[Byte], Array[Byte]]) : Map[TopicPartition, OffsetAndMetadata]  = {
