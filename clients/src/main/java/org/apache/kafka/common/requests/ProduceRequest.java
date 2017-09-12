@@ -247,6 +247,7 @@ public class ProduceRequest extends AbstractRequest {
             case 2:
             case 3:
             case 4:
+            case 5:
                 return new ProduceResponse(responseMap, throttleTimeMs);
             default:
                 throw new IllegalArgumentException(String.format("Version %d is not valid. Valid versions for %s are 0 to %d",
@@ -309,6 +310,7 @@ public class ProduceRequest extends AbstractRequest {
 
             case 3:
             case 4:
+            case 5:
                 return RecordBatch.MAGIC_VALUE_V2;
 
             default:

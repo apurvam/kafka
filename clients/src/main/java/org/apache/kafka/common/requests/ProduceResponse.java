@@ -43,6 +43,7 @@ public class ProduceResponse extends AbstractResponse {
     // partition level field names
     private static final String PARTITION_KEY_NAME = "partition";
     private static final String ERROR_CODE_KEY_NAME = "error_code";
+    private static final String LOG_START_OFFSET_KEY_NAME = "log_start_offset";
 
     public static final long INVALID_OFFSET = -1L;
 
@@ -103,8 +104,11 @@ public class ProduceResponse extends AbstractResponse {
                 Errors error = Errors.forCode(partRespStruct.getShort(ERROR_CODE_KEY_NAME));
                 long offset = partRespStruct.getLong(BASE_OFFSET_KEY_NAME);
                 long logAppendTime = partRespStruct.getLong(LOG_APPEND_TIME_KEY_NAME);
+                long logStartOffset = INVALID_OFFSET;
+                if (partRespStruct.hasField(LOG_START_OFFSET_KEY_NAME))
+                    logStartOffset = partRespStruct.getLong(LOG_START_OFFSET_KEY_NAME);
                 TopicPartition tp = new TopicPartition(topic, partition);
-                responses.put(tp, new PartitionResponse(error, offset, logAppendTime));
+                responses.put(tp, new PartitionResponse(error, offset, logAppendTime, logStartOffset));
             }
         }
         this.throttleTime = struct.getInt(THROTTLE_TIME_KEY_NAME);
@@ -135,6 +139,8 @@ public class ProduceResponse extends AbstractResponse {
                         .set(BASE_OFFSET_KEY_NAME, part.baseOffset);
                 if (partStruct.hasField(LOG_APPEND_TIME_KEY_NAME))
                     partStruct.set(LOG_APPEND_TIME_KEY_NAME, part.logAppendTime);
+                if (partStruct.hasField(LOG_START_OFFSET_KEY_NAME))
+                    partStruct.set(LOG_START_OFFSET_KEY_NAME, part.logStartOffset);
                 partitionArray.add(partStruct);
             }
             topicData.set(PARTITION_RESPONSES_KEY_NAME, partitionArray.toArray());
@@ -159,15 +165,17 @@ public class ProduceResponse extends AbstractResponse {
         public Errors error;
         public long baseOffset;
         public long logAppendTime;
+        public long logStartOffset;
 
         public PartitionResponse(Errors error) {
-            this(error, INVALID_OFFSET, RecordBatch.NO_TIMESTAMP);
+            this(error, INVALID_OFFSET, RecordBatch.NO_TIMESTAMP, INVALID_OFFSET);
         }
 
-        public PartitionResponse(Errors error, long baseOffset, long logAppendTime) {
+        public PartitionResponse(Errors error, long baseOffset, long logAppendTime, long logStartOffset) {
             this.error = error;
             this.baseOffset = baseOffset;
             this.logAppendTime = logAppendTime;
+            this.logStartOffset = logStartOffset;
         }
 
         @Override
@@ -180,6 +188,8 @@ public class ProduceResponse extends AbstractResponse {
             b.append(baseOffset);
             b.append(",logAppendTime: ");
             b.append(logAppendTime);
+            b.append(", logStartOffset: ");
+            b.append(logStartOffset);
             b.append('}');
             return b.toString();
         }
