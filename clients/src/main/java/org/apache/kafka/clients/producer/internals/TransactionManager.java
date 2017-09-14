@@ -505,7 +505,7 @@ public class TransactionManager {
         int sequence = 0;
         for (ProducerBatch inFlightBatch : inflightBatchesBySequence.get(topicPartition)) {
             inFlightBatch.resetProducerState(new ProducerIdAndEpoch(inFlightBatch.producerId(),
-                    inFlightBatch.producerEpoch()), sequence, inFlightBatch.isTransactional(), true);
+                    inFlightBatch.producerEpoch()), sequence, inFlightBatch.isTransactional());
             sequence += inFlightBatch.recordCount;
         }
         setNextSequence(topicPartition, sequence);
@@ -664,8 +664,8 @@ public class TransactionManager {
 
         Errors error = response.error;
         if (error == Errors.OUT_OF_ORDER_SEQUENCE_NUMBER &&
-                (batch.sequenceHasBeenReset() || (!partitionHasUnresolvedSequence(batch.topicPartition)
-                        && !isNextSequence(batch.topicPartition, batch.baseSequence())))i)
+                (batch.sequenceHasBeenReset() || (!hasUnresolvedSequence(batch.topicPartition)
+                        && !isNextSequence(batch.topicPartition, batch.baseSequence()))))
             return true;
 
         long lastOffset = -1;
@@ -693,7 +693,6 @@ public class TransactionManager {
             }
         }
         return false;
->>>>>>> ff635f9ce... Initial commit of client and server code, with minimal tests
     }
 
     // visible for testing
