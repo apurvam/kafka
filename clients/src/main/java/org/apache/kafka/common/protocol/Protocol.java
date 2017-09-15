@@ -310,28 +310,25 @@ public class Protocol {
      * Add in the log_start_offset field to the partition response to filter out spurious OutOfOrderSequencExceptions
      * on the client.
      */
-    public static final Schema PRODUCE_RESPONSE_V5 = new Schema(
-            new Field("responses",
-                    new ArrayOf(new Schema(
-                            new Field("topic", STRING),
-                            new Field("partition_responses",
-                                    new ArrayOf(new Schema(new Field("partition",
-                                            INT32),
-                                            new Field("error_code",
-                                                    INT16),
-                                            new Field("base_offset",
-                                                    INT64),
-                                            new Field("log_append_time",
-                                                    INT64,
-                                                    "The timestamp returned by broker after appending the messages. " +
-                                                            "If CreateTime is used for the topic, the timestamp will be -1. " +
-                                                            "If LogAppendTime is used for the topic, the timestamp will be " +
-                                                            "the broker local time when the messages are appended."),
-                                            new Field("log_start_offset",
-                                                    INT64,
-                                                    "The start offset of the log at the time this produce response was created"))))))),
-            newThrottleTimeField());
-
+    public static final Schema PRODUCE_RESPONSE_V5 = new Schema(new Field("responses",
+                                                                new ArrayOf(new Schema(new Field("topic", STRING),
+                                                                                       new Field("partition_responses",
+                                                                                       new ArrayOf(new Schema(new Field("partition",
+                                                                                                                        INT32),
+                                                                                                              new Field("error_code",
+                                                                                                                        INT16),
+                                                                                                              new Field("base_offset",
+                                                                                                                        INT64),
+                                                                                                              new Field("log_append_time",
+                                                                                                                        INT64,
+                                                                                                                        "The timestamp returned by broker after appending the messages. " +
+                                                                                                                            "If CreateTime is used for the topic, the timestamp will be -1. " +
+                                                                                                                            "If LogAppendTime is used for the topic, the timestamp will be " +
+                                                                                                                            "the broker local time when the messages are appended."),
+                                                                                                              new Field("log_start_offset",
+                                                                                                                        INT64,
+                                                                                                                        "The start offset of the log at the time this produce response was created"))))))),
+                                                                newThrottleTimeField());
 
     public static final Schema[] PRODUCE_REQUEST = {PRODUCE_REQUEST_V0, PRODUCE_REQUEST_V1, PRODUCE_REQUEST_V2, PRODUCE_REQUEST_V3, PRODUCE_REQUEST_V4, PRODUCE_REQUEST_V5};
     public static final Schema[] PRODUCE_RESPONSE = {PRODUCE_RESPONSE_V0, PRODUCE_RESPONSE_V1, PRODUCE_RESPONSE_V2, PRODUCE_RESPONSE_V3, PRODUCE_RESPONSE_V4, PRODUCE_RESPONSE_V5};
